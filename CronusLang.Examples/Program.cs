@@ -38,14 +38,3 @@ else
         Console.WriteLine(String.Format("{0}: {1}", msg.Level, msg.Message));
     }
 }
-
-    //Console.WriteLine(ast.ToJSON());
-
-    //Console.WriteLine(result.SemanticNodes.ToJSON());
-//}
-//catch (Exception ex)
-//{
-//    Console.WriteLine(ex.Message);
-//    Console.WriteLine(ex.StackTrace);
-//}
-
