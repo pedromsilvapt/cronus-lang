@@ -1,0 +1,191 @@
+﻿@namespace CronusLang.Parser
+@classname CronusParser
+@using System.Globalization
+@using CronusLang.Parser.AST
+@using CronusLang.Parser.AST.Literals
+@using CronusLang.Parser.AST.Expressions
+@using CronusLang.Parser.AST.Operators.Arithmetic
+@using CronusLang.Parser.AST.Operators.Comparison
+@using CronusLang.Parser.AST.Operators.Logic
+
+script <Script> = b:body EOF { new Script(b) }
+
+body <IList<Binding>> = _ binds:binding* _ { binds }
+
+// let identifier = expression;
+// let identifier :: ReturnType = expression;
+// let identifier :: Type arg -> ReturnType = expression;
+// let identifier = { expression };
+// let identifier :: ReturnType { bindings; expression }
+// let identifier :: Type arg -> ReturnType { bindings; expression };
+binding <Binding> -memoize
+    = _ s:POS LET _ id:identifier _ BIND _ expr:expr _ SC e:POS { new Binding(id, (BindingType?)null, new List<Binding>(), expr, s + e) }
+    / _ s:POS LET _ id:identifier _ CLS _ type:binding_type _ BIND _ expr:expr _ SC e:POS { new Binding(id, type, new List<Binding>(), expr, s + e) }
+    / _ s:POS LET _ id:identifier _ LBRACK _ bindings:body _ expr:expr _ RBRACK e:POS { new Binding(id, (BindingType?)null, bindings, expr, s + e) }
+    / _ s:POS LET _ id:identifier _ CLS _ type:binding_type _ LBRACK _ bindings:body _ expr:expr _ RBRACK e:POS { new Binding(id, type, bindings, expr, s + e) }
+
+binding_type <BindingType> 
+    = s:POS pars:binding_type_param* ret:type e:POS { new BindingType(pars, ret, s + e) }
+
+binding_type_param <BindingParameter> 
+    = s:POS t:type_nospace _ i:identifier e:POS _ LARROW _ { new BindingParameter(t, i, s + e) }
+
+// Same as `type`, but does not allow spaces such as `List String` unless it's inside parenthesis
+type_nospace <TypeNode> -memoize
+    = s:POS t:type_nospace LSBRCK RSBRCK _ e:POS { TypeNode.Array(t, s + e) }
+    / s:POS sym:symbol e:POS { new TypeNode(sym, s + e) }
+    / LPAR _ t:type _ RPAR { t }
+
+type <TypeNode> -memoize
+    = s:POS t:type LSBRCK RSBRCK _ e:POS { TypeNode.Array(t, s + e) }
+    / s:POS sym:symbol _ t:type<0,,_> _ e:POS { new TypeNode(sym, t, s + e) }
+    / LPAR _ t:type _ RPAR { t }
+
+symbol <IList<Identifier>> = identifier<1,,DOT>
+
+expr <Node> -memoize
+    = if_expr
+    / or
+
+if_expr <IfNode> 
+    = s:POS IF _ cond:expr _ THEN _ expr:expr _ elseExpr:elseif_expr e:POS { new IfNode(cond, expr, elseExpr, e + s) }
+    / s:POS IF _ cond:expr _ THEN _ expr:expr _ ELSE _ elseExpr:expr e:POS { new IfNode(cond, expr, elseExpr, e + s) }
+    
+elseif_expr <IfNode>
+    = s:POS ELSEIF _ cond:expr _ THEN _ expr:expr _ elseExpr:elseif_expr e:POS { new IfNode(cond, expr, elseExpr, e + s) }
+    / s:POS ELSEIF _ cond:expr _ THEN _ expr:expr _ ELSE _ elseExpr:expr e:POS { new IfNode(cond, expr, elseExpr, e + s) }
+
+or <Node> -memoize
+    = left:or _ OR _ right:and { new OrOp(left, right) }
+    / and
+
+and <Node> -memoize
+    = left:and _ AND _ right:equality { new AndOp(left, right) }
+    / equality
+
+equality <Node> -memoize
+    = left:equality _ EQ _ right:relational { new EqOp(left, right) }
+    / left:equality _ NEQ _ right:relational { new NeqOp(left, right) }
+    / relational
+
+relational <Node> -memoize
+    = left:relational _ LTE _ right:additive { new LteOp(left, right) }
+    / left:relational _ LT _ right:additive { new LtOp(left, right) }
+    / left:relational _ GTE _ right:additive { new GteOp(left, right) }
+    / left:relational _ GT _ right:additive { new GtOp(left, right) }
+    / additive
+// TODO Is, As Operators
+
+additive <Node> -memoize
+    = left:additive _ PLUS _ right:multiplicative { new AddOp(left, right) }
+    / left:additive _ MINUS _ right:multiplicative { new SubOp(left, right) }
+    / multiplicative
+
+multiplicative <Node> -memoize
+    = left:multiplicative _ MUL _ right:power { new MulOp(left, right) }
+    / left:multiplicative _ DIV _ right:power { new DivOp(left, right) }
+    / power
+
+power <Node>
+    = left:application _ POW _ right:power { new PowOp(left, right) }
+    / application
+    
+application <Node> -memoize
+    = fn:accessor args:application_arg+ { new Application(fn, args) }
+    / accessor
+
+application_arg <Node> -memoize = SPACE arg:accessor { arg }
+
+accessor <Node> -memoize
+    = s:POS container:accessor DOT id:identifier e:POS { new StaticAccessor(container, id, s + e) }
+    / s:POS container:accessor LSBRCK id:expr RSBRCK e:POS { new DynAccessor(container, id, s + e) }
+    / ap:atom { ap }
+
+atom <Node> -memoize
+    = expr_identifier
+    / literal
+    / s:POS MINUS primary:literal { new NegOp(primary, s) }
+    / LPAR _ expr:expr _ RPAR { expr }
+    
+expr_identifier <Identifier>
+    = id:identifier {{
+        id.IsExpression = true;
+        return id;
+}}
+
+identifier <Identifier>
+    = s:POS str:IDENTIFIER e:POS { new Identifier(str, s + e) }
+
+literal <Node>
+    = literal_decimal
+    / literal_int
+
+literal_decimal <DecimalLiteral>
+    = s:POS value:([0-9]+ "." [0-9]+) e:POS { new DecimalLiteral(decimal.Parse(value, CultureInfo.InvariantCulture), s + e) }
+
+literal_int <IntLiteral>
+    = s:POS value:([0-9][0-9]*) e:POS { new IntLiteral(int.Parse(value), s + e) }
+
+literal_string <StringLiteral> = s:POS "\"" chars:unicode* ("\"" / #ERROR{ "Expected '\"'" }) e:POS { new StringLiteral(string.Concat(chars), s + e) }
+
+// TODO literal_bool
+// TODO literal_null
+
+
+// TODO not
+
+unicode
+    = c:. !{c == "\\" || c == "\"" || char.IsControl(c[0])} { c }
+    / "\\" c:(
+        e:["\/\\] { e } /
+        "b" { "\b" } /
+        "f" { "\f" } /
+        "n" { "\n" } /
+        "r" { "\r" } /
+        "t" { "\t" } /
+        "u" digits:("" [0-9A-F]i<4>) { ((char)Convert.ToInt32(digits, 16)).ToString() }
+    ) { c }
+
+// Tokens
+__ -memoize = "" [ \t\r\n]+
+_ -memoize = "" [ \t\r\n]*
+ALPHANUMERIC = [a-zA-Z0-9_]+
+IDENTIFIER = chars:([a-zA-Z_][a-zA-Z0-9_]*) !{{ 
+    string s = string.Concat(chars);
+    return s == "const" || s == "let" || s == "and" || s == "or" || s == "if" || s == "then" || s == "elseif" || s == "else";
+}}
+KEYWORD = CONST / LET / AND / OR / IF / THEN / ELSEIF / ELSE
+CONST = "const" !ALPHANUMERIC
+LET = "let" !ALPHANUMERIC
+AND = "and" !ALPHANUMERIC
+OR = "or" !ALPHANUMERIC
+IF = "if" !ALPHANUMERIC
+THEN = "then" !ALPHANUMERIC
+ELSEIF = "elseif" !ALPHANUMERIC
+ELSE = "else" !ALPHANUMERIC
+GTE = ">="
+GT = ">" !"="
+LTE = "<="
+LT = "<" !"="
+EQ = "=="
+NEQ = "!="
+PLUS = "+"
+MINUS = "-"
+DIV = "/"
+MUL = "*"
+POW = "^"
+LPAR = "("
+RPAR = ")"
+LBRACK = "{"
+RBRACK = "}"
+LSBRCK = "["
+RSBRCK = "]"
+DOT = "."
+FARROW = "=>"
+LARROW = "->"
+BIND = "=" !(">" / "=")
+CLS = "::"
+SC = ";"
+POS <Location> = "" { new Location(state) }
+SPACE = "" [ \t\r\n]+ // !(AND / OR / IF / THEN / ELSEIF / ELSE / GTE / GT / LTE / LT / EQ / NEQ / PLUS / MINUS / DIV / MUL / POW)
+EOF = !. / c:. #ERROR{ "Unexpected '" + c + "'" }
