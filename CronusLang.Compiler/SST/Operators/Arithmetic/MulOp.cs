@@ -9,7 +9,7 @@ namespace CronusLang.Compiler.SST.Operators.Arithmetic
 {
     public class MulOp : BinaryOperator
     {
-        public MulOp(SymbolsScope scope, AST.Operators.Arithmetic.DivOp syntaxNode, SemanticTransformer transformer) : base(scope, syntaxNode, transformer)
+        public MulOp(SymbolsScope scope, AST.Operators.Arithmetic.MulOp syntaxNode, SemanticTransformer transformer) : base(scope, syntaxNode, transformer)
         {
         }
 

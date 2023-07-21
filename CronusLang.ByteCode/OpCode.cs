@@ -17,6 +17,7 @@ namespace CronusLang.ByteCode
         Let,
         Return,
         Call,
+        Nop,
         Halt,
 
         // Control Flow

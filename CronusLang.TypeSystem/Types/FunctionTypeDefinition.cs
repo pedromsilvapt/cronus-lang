@@ -21,7 +21,7 @@ namespace CronusLang.TypeSystem.Types
         public override int GetSize()
         {
             // We will represent functions by their Ids, and as such, they are integers
-            return sizeof(int);
+            return sizeof(int) * 2;
         }
 
         public override bool IsAssignableFrom(TypeDefinition other)

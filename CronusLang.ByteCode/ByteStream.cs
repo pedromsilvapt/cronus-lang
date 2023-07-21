@@ -8,8 +8,10 @@ namespace CronusLang.ByteCode
 {
     /// <summary>
     /// TODO Transform this into a list of lists, where each sub-list is preallocated memory that grows exponentially
-    /// This way, we avoid inserting one element causing the whole byte stream having to be fully copied
+    ///      This way, we avoid inserting one element causing the whole byte stream having to be fully copied
     /// TODO Maybe make this a sub class of IO? Or acept an underlying IO object instead of a List of bytes?
+    /// TODO Use an optional internal static byte buffer to pool byte arrays instead of allocating them on the heap
+    ///      enable it for the stack, and "reset" it before each opcode instruction
     /// </summary>
     public class ByteStream
     {
@@ -51,6 +53,15 @@ namespace CronusLang.ByteCode
             _bytecode = new List<byte>();
         }
 
+        public void Compact()
+        {
+            if (_bytecode.Count > Cursor)
+            {
+                _bytecode.RemoveRange(Cursor, _bytecode.Count - Cursor);
+            }
+            _bytecode.TrimExcess();
+        }
+
         #region Write
 
         public void Write(params byte[] bytes)
@@ -78,6 +89,11 @@ namespace CronusLang.ByteCode
         public void Write(int number)
         {
             Write(BitConverter.GetBytes(number));
+        }
+        
+        public void Write(bool boolean)
+        {
+            Write(boolean ? 1 : 0);
         }
 
         public void Write(uint number)
@@ -137,6 +153,13 @@ namespace CronusLang.ByteCode
             return (OpCode)Read();
         }
 
+        public bool ReadBool()
+        {
+            Span<byte> buffer = stackalloc byte[sizeof(int)];
+            Read(buffer);
+            return BitConverter.ToInt32(buffer) != 0;
+        }
+
         public int ReadInt()
         {
             Span<byte> buffer = stackalloc byte[sizeof(int)];
@@ -189,6 +212,13 @@ namespace CronusLang.ByteCode
                 buffer[i] = _bytecode[_cursor + i];
             }
             return length;
+        }
+
+        public bool PopBool()
+        {
+            Span<byte> buffer = stackalloc byte[sizeof(int)];
+            Pop(buffer);
+            return BitConverter.ToInt32(buffer) != 0;
         }
 
         public int PopInt()

@@ -71,7 +71,7 @@ namespace CronusLang.Compiler.Definitions
 
             var variables = new Dictionary<string, SymbolDefinition>();
 
-            // Leave space for the frame pointer and stack pointer values
+            // Leave space for the frame pointer and instruction pointer values
             int offset = sizeof(int) * -2;
 
             for (int i = argNames.Length; i > 0; i--)

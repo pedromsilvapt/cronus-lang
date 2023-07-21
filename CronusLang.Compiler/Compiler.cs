@@ -190,8 +190,9 @@ namespace CronusLang.Compiler
             }
             else
             {
-                // Reserve space for the result of the expression
-                Emit(body, OpCode.PushN, expression.Type.Value.GetSize());
+                // TODO Handle bindings declarations in sub-expressions
+                //// Reserve space for the result of the expression
+                //Emit(body, OpCode.PushN, expression.Type.Value.GetSize());
 
                 // The value of this offset will be equal to the Expr.TypeSize + Sum(Bindings.TypeSize) + Expr.TypeSize
                 int resultOffset = expression.Type.Value.GetSize();
@@ -207,12 +208,14 @@ namespace CronusLang.Compiler
 
                 resultOffset += expression.Type.Value.GetSize();
 
-                // Move the result of the expression to the place we reserved for it on the stack
-                Emit(body, OpCode.StoreStackN, resultOffset * -1, expression.Type.Value.GetSize());
+                //// Move the result of the expression to the place we reserved for it on the stack
+                //Emit(body, OpCode.StoreStackN, resultOffset * -1, expression.Type.Value.GetSize());
 
-                foreach (var childBinding in childBindings.Reverse())
+                var sizeToPop = childBindings.Sum(childBinding => childBinding.Type.Value.GetSize());
+
+                if (sizeToPop > 0)
                 {
-                    Emit(body, OpCode.PopN, childBinding.Type.Value.GetSize());
+                    //Emit(body, OpCode.PopN, sizeToPop);
                 }
             }
         }
@@ -325,13 +328,22 @@ namespace CronusLang.Compiler
 
                 // TODO Emit and build the captures context object
 
+                int argsSize = 0;
+
                 foreach (var arg in application.Args)
                 {
                     CompileExpression(frame, body, arg);
+
+                    argsSize += arg.Type.Value.GetSize();
                 }
 
                 CompileExpression(frame, body, application.Func);
                 Emit(body, OpCode.Call);
+
+                if (argsSize > 0)
+                {
+                    Emit(body, OpCode.PopN, argsSize);
+                }
             }
             else if (expression is SST.Expressions.IfNode ifNode)
             {
