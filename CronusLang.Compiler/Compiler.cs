@@ -29,11 +29,11 @@ namespace CronusLang.Compiler
         /// <param name="name"></param>
         /// <param name="type"></param>
         /// <returns></returns>
-        public FunctionDefinition CreateFunction(Symbol symbol, FunctionTypeDefinition type, string[] argNames, string[] bindingNames)
+        public FunctionDefinition CreateFunction(Symbol symbol, FunctionTypeDefinition type, string[] argNames, Dictionary<SymbolsScopeEntry, SymbolDefinition> variables)
         {
             var id = _functionIdCounter++;
 
-            var definition = new FunctionDefinition(id, symbol, type, argNames, bindingNames);
+            var definition = new FunctionDefinition(id, symbol, type, argNames, variables);
 
             Functions[id] = definition;
 
@@ -118,10 +118,9 @@ namespace CronusLang.Compiler
 
         protected void CompileScript(SST.Script script)
         {
-            Global.BindingNames = script
-                .Bindings
-                .Select(bind => bind.GetSyntaxNode<AST.Binding>().Identifier.Name)
-                .ToArray();
+            var symbolsSize = CreateBlockSymbols(Global.Variables, script);
+
+            Emit(Global, OpCode.PushN, symbolsSize);
 
             foreach (var binding in script.Bindings)
             {
@@ -138,10 +137,10 @@ namespace CronusLang.Compiler
 
         protected void CompileBinding(FunctionDefinition? frame, InstructionsDefinition body, SST.Binding binding)
         {
-            // Register the symbol
+            // Get the registered the symbol
             var identifier = binding.Identifier.GetSyntaxNode<AST.Identifier>().Name;
 
-            var symbol = body.CreateVariable(identifier, binding.Type.Value);
+            var symbol = body.GetVariable(binding.Scope.ParentScope!.Lookup(identifier));
 
             if (binding.Type.Value is FunctionTypeDefinition functionType && binding.Signature?.Parameters?.Count() > 0)
             {
@@ -153,71 +152,213 @@ namespace CronusLang.Compiler
                     .ToArray();
 
                 var bindingNames = binding
+                    .Block
                     .Bindings
                     .Select(bind => bind.GetSyntaxNode<AST.Binding>().Identifier.Name)
                     .ToArray();
 
+                var symbols = CreateFunctionSymbols(functionType, binding, argNames, bindingNames, out int returnOffset, out int stackSymbolsSize);
+
                 // When the symbol is a function, like in this case, the symbol itself will just be a pointer to the function id
                 // The metadata regarding the function, such as the position of the bytecode, it's type and so on, will be stored in
                 // a header structure
-                var function = CreateFunction(binding.Scope.FullName!, functionType, argNames, bindingNames);
+                var function = CreateFunction(binding.Scope.FullName!, functionType, argNames, symbols);
+                function.StackPointerOffset = stackSymbolsSize;
+
+                // Create the return variable
+                function.CreateVariable("@return", functionType.ReturnType, returnOffset);
 
                 // Function Id
                 Emit(body, OpCode.PushInt, function.Id);
                 // Context pointer (global means no context)
                 Emit(body, OpCode.PushInt, 0);
+                // Store the two integers on the assigned slot for this symbol
+                Emit(body, body.StoreOperation, symbol.Index, symbol.Type.GetSize());
 
-                CompileBlock(function, function, binding.Bindings, binding.Expression);
+                // Reserve the symbols stack space for this function
+                Emit(function, OpCode.PushN, function.StackPointerOffset);
+
+                CompileBlock(function, function, binding.Block);
 
                 var returnSymbol = function.GetVariable("@return");
 
-                Emit(function, returnSymbol.StoreOperation, returnSymbol.Index, binding.Expression.Type.Value.GetSize());
+                Emit(function, returnSymbol.StoreOperation, returnSymbol.Index, binding.Block.Type.Value.GetSize());
                 Emit(function, OpCode.Return);
             }
             else
             {
-                CompileBlock(frame, body, binding.Bindings, binding.Expression);
+                CompileBlock(frame, body, binding.Block);
+                // Store the result of the block expression on the assigned slot for this symbol
+                Emit(body, body.StoreOperation, symbol.Index, symbol.Type.GetSize());
             }
         }
 
-        protected void CompileBlock(FunctionDefinition? frame, InstructionsDefinition body, IList<SST.Binding> childBindings, SST.Expression expression)
+        /// <summary>
+        /// Build the Dictionary of variables and their byte offset positions relative to the Frame Pointer.
+        /// 
+        /// Sample of a stack where each row is one byte. LocalVar1 and LocalVar3 have 1 byte of size, while LocalVar2 has 2 bytes.
+        /// Similarly, Arg1, Arg2 and Arg3 have 1 byte of size as well. The return value, has 3 bytes.
+        /// 
+        /// ┌────────────────┐
+        /// │        .       │
+        /// │        .       │
+        /// │        .       │
+        /// │    LocalVar3   │+3
+        /// │                │
+        /// │    LocalVar2   │+1
+        /// │    LocalVar1   │+0
+        /// ├────────────────┤FP
+        /// │      Arg3      │-1
+        /// │      Arg2      │-2
+        /// │      Arg1      │-3
+        /// │                │
+        /// │                │
+        /// │     Return     │-6
+        /// └────────────────┘
+        /// </summary>
+        /// <param name="type"></param>
+        /// <param name="argNames"></param>
+        /// <returns></returns>
+        /// <exception cref="Exception"></exception>
+        private Dictionary<SymbolsScopeEntry, SymbolDefinition> CreateFunctionSymbols(FunctionTypeDefinition type, SST.Binding binding, string[] argNames, string[] bindingNames, out int returnOffset, out int stackSymbolsSize)
         {
-            // If there are no bindings on this block, we can assume it's result will already be on the correct stack position
-            // So no need to reserve space for it and move it afterwards, we can just compile it
-            if (childBindings.Count == 0)
+            if (argNames.Length != type.Arguments.Count)
             {
-                CompileExpression(frame, body, expression);
+                throw new Exception("Invalid number of argument names: does not match function's type argument's number");
             }
-            else
+
+            var symbols = new Dictionary<SymbolsScopeEntry, SymbolDefinition>();
+
+            var rootScope = binding.Scope;
+
+            // Leave space for the frame pointer and instruction pointer values
+            int offset = sizeof(int) * -2;
+
+            for (int i = argNames.Length; i > 0; i--)
             {
-                // TODO Handle bindings declarations in sub-expressions
-                //// Reserve space for the result of the expression
-                //Emit(body, OpCode.PushN, expression.Type.Value.GetSize());
+                // Get the size of the argument
+                offset -= type.Arguments[i - 1].Type.GetSize();
 
-                // The value of this offset will be equal to the Expr.TypeSize + Sum(Bindings.TypeSize) + Expr.TypeSize
-                int resultOffset = expression.Type.Value.GetSize();
+                symbols[rootScope.Lookup(argNames[i - 1])] = new SymbolDefinition(
+                    isGlobal: false, OpCode.LoadFrameN, OpCode.StoreFrameN, offset, type.Arguments[i - 1].Type
+                );
+            }
 
-                foreach (var childBinding in childBindings)
+            offset -= type.ReturnType.GetSize();
+
+            returnOffset = offset;
+
+            // TODO Create @captures variable
+            // TODO Create @framePointer variables
+            stackSymbolsSize = CreateBlockSymbols(symbols, binding.Block);
+
+            return symbols;
+        }
+
+        private int CreateBlockSymbols(Dictionary<SymbolsScopeEntry, SymbolDefinition> symbols, SST.Node root, int offset = 0)
+        {
+            int maximumOffset = offset;
+
+            var offsetByScope = new Dictionary<SymbolsScope, int>();
+
+            var nodesToVisit = new Queue<SST.Node>();
+            nodesToVisit.Enqueue(root);
+
+            while (nodesToVisit.Count > 0)
+            {
+                var node = nodesToVisit.Dequeue();
+
+                #region Queue Child Nodes
+
+                // We do not want to queue the children of bindings that are functions
+                // Their symbols will not have offsets relative to this frame pointer anyway, so no use registering them
+                if (!(node is SST.Binding) || (node as SST.Binding)!.Signature == null || (node as SST.Binding)!.Signature!.Parameters.Count == 0)
                 {
-                    CompileBinding(frame, body, childBinding);
-
-                    resultOffset += childBinding.Type.Value.GetSize();
+                    foreach (var childNode in node.GetChildren())
+                    {
+                        nodesToVisit.Enqueue(childNode);
+                    }
                 }
 
-                CompileExpression(frame, body, expression);
+                #endregion
 
-                resultOffset += expression.Type.Value.GetSize();
-
-                //// Move the result of the expression to the place we reserved for it on the stack
-                //Emit(body, OpCode.StoreStackN, resultOffset * -1, expression.Type.Value.GetSize());
-
-                var sizeToPop = childBindings.Sum(childBinding => childBinding.Type.Value.GetSize());
-
-                if (sizeToPop > 0)
+                if (node is SST.Binding binding)
                 {
-                    //Emit(body, OpCode.PopN, sizeToPop);
+                    // Represents the byte offset from the frame pointer
+                    int scopeOffset = offset;
+
+                    // Bindings will be registered on their parent scope (since bindings create a child scope for themselves)
+                    SymbolsScope scopeToRegister = binding.Scope.ParentScope!;
+
+                    // We want to know the byte offset on that scope
+                    SymbolsScope? scopeToSearch = scopeToRegister;
+
+                    // We may not have registered any binding in some ascendant scopes of this one
+                    // And as such, we may have to loop until we find one parent scope that had bindings registered.
+                    // Whatever offset was registered in that scope will be our starting point
+                    while (scopeToSearch != null)
+                    {
+                        if (offsetByScope.TryGetValue(scopeToSearch, out int offsetFound))
+                        {
+                            scopeOffset = offsetFound;
+
+                            break;
+                        } 
+                        // We do not want to search further than the root scope 
+                        else if (scopeToSearch == root.Scope)
+                        {
+                            break;
+                        }
+                        else
+                        {
+                            scopeToSearch = scopeToSearch.ParentScope;
+                        }
+                    }
+
+                    var identifier = binding.GetSyntaxNode<AST.Binding>().Identifier.Name;
+
+                    var symbol = new SymbolDefinition(
+                        isGlobal: scopeToRegister.Global,
+                        loadOp: scopeToRegister.Global
+                            ? OpCode.LoadGlobalN
+                            : OpCode.LoadFrameN,
+                        storeOp: scopeToRegister.Global
+                            ? OpCode.StoreGlobalN
+                            : OpCode.StoreFrameN,
+                        index: scopeOffset,
+                        type: binding.Type.Value
+                    );
+
+                    // Register the symbol
+                    symbols[scopeToRegister.Lookup(identifier)] = symbol;
+
+                    // Increase the offset with the space taken by this symbol
+                    scopeOffset += binding.Type.Value.GetSize();
+
+                    // Update the offset of this scope so any bindings registered on it in the future
+                    // will have the updated scope
+                    offsetByScope[scopeToRegister] = scopeOffset;
+
+                    // The total required size for all scopes will be the maximum value of the sizes required for each individual scope
+                    // So, any time that any scope's offset overpasses the current maximum, we increase the maximum to it
+                    if (scopeOffset > maximumOffset)
+                    {
+                        maximumOffset = scopeOffset;
+                    }
                 }
             }
+
+            return maximumOffset;
+        }
+
+        protected void CompileBlock(FunctionDefinition? frame, InstructionsDefinition body, SST.Expressions.Block block)
+        {
+            foreach (var childBinding in block.Bindings)
+            {
+                CompileBinding(frame, body, childBinding);
+            }
+
+            CompileExpression(frame, body, block.Expression);
         }
 
         protected void CompileExpression(FunctionDefinition? frame, InstructionsDefinition body, SST.Expression expression)
@@ -345,6 +486,10 @@ namespace CronusLang.Compiler
                     Emit(body, OpCode.PopN, argsSize);
                 }
             }
+            else if (expression is SST.Expressions.Block block)
+            {
+                CompileBlock(frame, body, block);
+            }
             else if (expression is SST.Expressions.IfNode ifNode)
             {
                 var elseLabel = CreateLabelPlaceholder(body);
@@ -369,6 +514,10 @@ namespace CronusLang.Compiler
             {
                 CompileSymbol(frame, body, identifier.Symbol.Value);
             }
+            else
+            {
+                throw new Exception($"Compilte not yet implemented for {expression.GetType().Name}");
+            }
         }
 
         public void CompileSymbol(FunctionDefinition? frame, InstructionsDefinition body, SymbolsScopeEntry symbol)
@@ -380,9 +529,7 @@ namespace CronusLang.Compiler
                     throw new Exception("Cannot compile a parameter symbol in a frame-less environment!");
                 }
 
-                var parameterName = frame.ArgNames[symbol.ParameterIndex!.Value];
-
-                var parameter = frame.GetVariable(parameterName);
+                var parameter = frame.GetVariable(symbol);
 
                 Emit(body, parameter.LoadOperation, parameter.Index, parameter.Type.GetSize());
             }
@@ -392,22 +539,18 @@ namespace CronusLang.Compiler
             }
             else if (symbol.IsBinding)
             {
+                SymbolDefinition variable;
+
                 if (symbol.BindingGlobal!.Value)
                 {
-                    var variableName = Global.BindingNames[symbol.BindingIndex!.Value];
-
-                    var variable = Global.GetVariable(variableName);
-                
-                    Emit(body, variable.LoadOperation, variable.Index, variable.Type.GetSize());
+                    variable = Global.GetVariable(symbol);
                 }
                 else
                 {
-                    var variableName = body.BindingNames[symbol.BindingIndex!.Value];
-
-                    var variable = body.GetVariable(variableName);
-
-                    Emit(body, variable.LoadOperation, variable.Index, variable.Type.GetSize());
+                    variable = body.GetVariable(symbol);
                 }
+
+                Emit(body, variable.LoadOperation, variable.Index, variable.Type.GetSize());
             }
             else if (symbol.IsType)
             {

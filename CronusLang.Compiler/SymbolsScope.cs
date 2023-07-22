@@ -61,7 +61,7 @@ namespace CronusLang.Compiler
 
         protected Lazy<string?> _fullName;
 
-        protected SymbolsScope(string? name = null, bool global = false, bool requireReservation = true, bool requireCapture = false)
+        protected SymbolsScope(string? name = null, bool global = true, bool requireReservation = true, bool requireCapture = false)
         {
             RootScope = this;
             ParentScope = null;
@@ -76,14 +76,14 @@ namespace CronusLang.Compiler
             _fullName = new Lazy<string?>(() => CalculateFullName(), isThreadSafe: false);
         }
 
-        protected SymbolsScope(SymbolsScope parentScope, string? name = null, bool global = false, bool requireReservation = true, bool requireCapture = false)
+        protected SymbolsScope(SymbolsScope parentScope, string? name = null, bool? global = null, bool requireReservation = true, bool requireCapture = false)
         {
             Analyzer = parentScope.Analyzer;
             ParentScope = parentScope;
             RootScope = parentScope.RootScope;
             ChildrenScopes = new List<SymbolsScope>();
             Name = name;
-            Global = global;
+            Global = global ?? parentScope.Global;
             RequireReservation = requireReservation;
             RequireCapture = requireCapture;
 
@@ -287,12 +287,12 @@ namespace CronusLang.Compiler
             }
         }
 
-        public SymbolsScope CreateChild(string? name = null, bool global = false, bool requireReservation = true, bool requireCapture = false)
+        public SymbolsScope CreateChild(string? name = null, bool? global = null, bool requireReservation = true, bool requireCapture = false)
         {
             return new SymbolsScope(this, name, global, requireReservation, requireCapture);
         }
 
-        public static SymbolsScope CreateRoot(string? name = null, bool global = false, bool requireReservation = false, bool requireCapture = false)
+        public static SymbolsScope CreateRoot(string? name = null, bool global = true, bool requireReservation = false, bool requireCapture = false)
         {
             return new SymbolsScope(name, global, requireReservation, requireCapture);
         }

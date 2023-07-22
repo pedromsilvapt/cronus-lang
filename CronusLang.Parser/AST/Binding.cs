@@ -11,46 +11,51 @@ namespace CronusLang.Parser.AST
         public Identifier Identifier { get; protected set; }
 
         public BindingType? Signature { get; protected set; }
+        
+        public Expressions.Block Block { get; protected set; }
 
-        public IList<Binding> Bindings { get; protected set; }
-
-        public Node Expression { get; protected set; }
-
-        public Binding(Identifier identifier, BindingType? type, IList<Binding> bindings, Node expression, LocationSpan location) : base(location)
+        public Binding(Identifier identifier, BindingType? type, IList<Binding> bindings, Node expression, LocationSpan blockLocation, LocationSpan location) : base(location)
         {
             Identifier = identifier;
             Signature = type;
-            Bindings = bindings;
-            Expression = expression;
+            Block = new Expressions.Block(bindings, expression, blockLocation, createScope: false);
         }
 
         public override int CountChildren()
         {
-            return 1 + 1 + Bindings.Count + 1;
+            return 1 + (Signature != null ? 1 : 0) + 1;
         }
 
         public override void GetChildren(Span<Node> childrenReceiver)
         {
             childrenReceiver[0] = Identifier;
-            childrenReceiver[1] = Signature!; // TODO send null?
 
-            for (int i = 0; i < Bindings.Count; i++)
+            int offset = 0;
+            if (Signature != null)
             {
-                childrenReceiver[2 + i] = Bindings[i];
+                childrenReceiver[1] = Signature!; // TODO send null?
+                offset += 1;
             }
-            childrenReceiver[childrenReceiver.Length - 1] = Expression;
+
+            childrenReceiver[1 + offset] = Block;
         }
 
         public override Node SetChildren(ReadOnlySpan<Node> newChildren)
         {
-            Binding[] childBindings = new Binding[newChildren.Length - 1];
+            BindingType? signature = null;
+            Expressions.Block block;
 
-            for (int i = 2; i < newChildren.Length - 1; i++)
+            if (newChildren[1] is BindingType)
             {
-                childBindings[i - 2] = (Binding)newChildren[i];
+                signature = ((BindingType)newChildren[1]);
+                block = (Expressions.Block)newChildren[2];
+            } 
+            else
+            {
+                block = (Expressions.Block)newChildren[1];
             }
-
-            return new Binding((Identifier)newChildren[0], (BindingType?)newChildren[1], childBindings, newChildren[newChildren.Length - 1], Location);
+            
+            return new Binding((Identifier)newChildren[0], signature, block.Bindings, block.Expression, block.Location, Location);
         }
     }
 }

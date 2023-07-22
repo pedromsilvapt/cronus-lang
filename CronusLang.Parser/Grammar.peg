@@ -8,9 +8,9 @@
 @using CronusLang.Parser.AST.Operators.Comparison
 @using CronusLang.Parser.AST.Operators.Logic
 
-script <Script> = b:body EOF { new Script(b) }
+script <Script> = _ b:bindings_list _ EOF { new Script(b) }
 
-body <IList<Binding>> = _ binds:binding* _ { binds }
+bindings_list <IList<Binding>> = binds:binding* { binds }
 
 // let identifier = expression;
 // let identifier :: ReturnType = expression;
@@ -19,10 +19,10 @@ body <IList<Binding>> = _ binds:binding* _ { binds }
 // let identifier :: ReturnType { bindings; expression }
 // let identifier :: Type arg -> ReturnType { bindings; expression };
 binding <Binding> -memoize
-    = _ s:POS LET _ id:identifier _ BIND _ expr:expr _ SC e:POS { new Binding(id, (BindingType?)null, new List<Binding>(), expr, s + e) }
-    / _ s:POS LET _ id:identifier _ CLS _ type:binding_type _ BIND _ expr:expr _ SC e:POS { new Binding(id, type, new List<Binding>(), expr, s + e) }
-    / _ s:POS LET _ id:identifier _ LBRACK _ bindings:body _ expr:expr _ RBRACK e:POS { new Binding(id, (BindingType?)null, bindings, expr, s + e) }
-    / _ s:POS LET _ id:identifier _ CLS _ type:binding_type _ LBRACK _ bindings:body _ expr:expr _ RBRACK e:POS { new Binding(id, type, bindings, expr, s + e) }
+    = _ s:POS LET _ id:identifier _ BIND _ se:POS expr:expr ee:POS _ SC e:POS { new Binding(id, (BindingType?)null, new List<Binding>(), expr, se + ee, s + e) }
+    / _ s:POS LET _ id:identifier _ CLS _ type:binding_type _ BIND _ se:POS expr:expr ee:POS _ SC e:POS { new Binding(id, type, new List<Binding>(), expr, se + ee, s + e) }
+    / _ s:POS LET _ id:identifier _ sb:POS LBRACK _ bindings:bindings_list _ expr:expr _ RBRACK e:POS { new Binding(id, (BindingType?)null, bindings, expr, sb + e, s + e) }
+    / _ s:POS LET _ id:identifier _ CLS _ type:binding_type _ sb:POS LBRACK _ bindings:bindings_list _ expr:expr _ RBRACK e:POS { new Binding(id, type, bindings, expr, sb + e, s + e) }
 
 binding_type <BindingType> 
     = s:POS pars:binding_type_param* ret:type e:POS { new BindingType(pars, ret, s + e) }
@@ -105,7 +105,11 @@ atom <Node> -memoize
     = expr_identifier
     / literal
     / s:POS MINUS primary:literal { new NegOp(primary, s) }
+    / block
     / LPAR _ expr:expr _ RPAR { expr }
+
+block <Block>
+    = s:POS LBRACK _ bindings:bindings_list _ expr:expr _ RBRACK e:POS { new Block(bindings, expr, s + e) }
     
 expr_identifier <Identifier>
     = id:identifier {{

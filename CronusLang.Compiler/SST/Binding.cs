@@ -17,9 +17,7 @@ namespace CronusLang.Compiler.SST
 
         public SST.BindingType? Signature { get; set; } = null;
 
-        public IList<SST.Binding> Bindings { get; set; }
-
-        public SST.Expression Expression { get; set; }
+        public SST.Expressions.Block Block { get; set; }
 
         #endregion
 
@@ -32,7 +30,7 @@ namespace CronusLang.Compiler.SST
         protected bool _exprTypeChecked { get; set; } = false;
 
         public Binding(SymbolsScope scope, AST.Binding syntaxNode, SemanticTransformer transformer) 
-            : base(scope.CreateChild(syntaxNode.Identifier.Name), syntaxNode)
+            : base(scope.CreateChild(syntaxNode.Identifier.Name, global: false), syntaxNode)
         {
             // The identifier and the signature portion of the binding should always be analzyed
             // with the original parent scope
@@ -40,9 +38,8 @@ namespace CronusLang.Compiler.SST
             Signature = transformer.TryToSST<SST.BindingType>(Scope.ParentScope!, syntaxNode.Signature);
             // The newly created child scope is only used for the child bindings and the
             // expression of the binding
-            Bindings = transformer.ToSST<SST.Binding>(Scope, syntaxNode.Bindings);
-            Expression = transformer.ToSST<SST.Expression>(Scope, syntaxNode.Expression);
-
+            Block = transformer.ToSST<SST.Expressions.Block>(Scope, syntaxNode.Block);
+            
             // TODO
             Type = new SemanticProperty<TypeDefinition>(this, nameof(Type));
 
@@ -63,29 +60,22 @@ namespace CronusLang.Compiler.SST
                     Scope.Reserve(signatureParameter.Identifier.Name);
                 }
             }
-
-            foreach (var childBinding in Bindings)
-            {
-                Scope.Reserve(childBinding.GetSyntaxNode<AST.Binding>().Identifier.Name);
-            }
         }
 
-        public override int CountChildren() => 1 + (Signature != null ? 1 : 0) + Bindings.Count + 1;
+        public override int CountChildren() => 1 + (Signature != null ? 1 : 0) + 1;
 
         public override void GetChildren(Span<Node> childrenReceiver)
         {
             childrenReceiver[0] = Identifier;
 
-            int offset = 1;
+            int offset = 0;
             if (Signature != null)
             {
                 offset++;
                 childrenReceiver[1] = Signature!;
             }
 
-            for (int i = 0; i < Bindings.Count; i++) childrenReceiver[i + offset] = Bindings[i];
-
-            childrenReceiver[Bindings.Count + offset] = Expression;
+            childrenReceiver[1 + offset] = Block;
         }
 
         public override Node SetChildren(ReadOnlySpan<Node> newChildren)
@@ -121,28 +111,9 @@ namespace CronusLang.Compiler.SST
                 }
             }
 
-            for (int i = 0; i < Bindings.Count; i++)
+            if (Signature == null && !Type.IsResolved && Block.Type.TrackDependency(context, out var blockType))
             {
-                var childBinding = Bindings[i];
-
-                string childBindingIdentifier = childBinding
-                    .GetSyntaxNode<AST.Binding>()
-                    .Identifier
-                    .Name;
-
-                // If this symbol is not yet registered
-                if (Scope.TryLookup(childBindingIdentifier, LookupOptions.SelfOnly) == null)
-                {
-                    if (childBinding.Type.TrackDependency(context, out var type))
-                    {
-                        Scope.Register(childBindingIdentifier, SymbolsScopeEntry.CreateBinding(i, global: false, type));
-                    }
-                }
-            }
-
-            if (Signature == null && !Type.IsResolved && Expression.Type.TrackDependency(context, out var exprType))
-            {
-                Type.Resolve(context, exprType);
+                Type.Resolve(context, blockType);
             }
 
             //if (!_exprTypeChecked &&
