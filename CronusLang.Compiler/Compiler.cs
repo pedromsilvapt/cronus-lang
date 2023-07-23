@@ -118,6 +118,8 @@ namespace CronusLang.Compiler
 
         protected void CompileScript(SST.Script script)
         {
+            // TODO Emit debug markers (node locations, symbols information, types information, etc...)
+
             var symbolsSize = CreateBlockSymbols(Global.Variables, script);
 
             Emit(Global, OpCode.PushN, symbolsSize);
@@ -178,19 +180,444 @@ namespace CronusLang.Compiler
                 // Reserve the symbols stack space for this function
                 Emit(function, OpCode.PushN, function.StackPointerOffset);
 
+                // Compile the block bindings and expression
                 CompileBlock(function, function, binding.Block);
 
                 var returnSymbol = function.GetVariable("@return");
+                // Perform an implicit cast(if needed) from the block actual type and the binding return type
+                CompileImplicitCast(function, binding.Block.Type.Value, returnSymbol.Type);
+                // Save the value in the correct location
+                Emit(function, returnSymbol.StoreOperation, returnSymbol.Index, returnSymbol.Type.GetSize());
 
-                Emit(function, returnSymbol.StoreOperation, returnSymbol.Index, binding.Block.Type.Value.GetSize());
                 Emit(function, OpCode.Return);
             }
             else
             {
                 CompileBlock(frame, body, binding.Block);
+                // Perform an implicit cast(if needed) from the block actual type and the binding type
+                CompileImplicitCast(body, binding.Block.Type.Value, symbol.Type);
                 // Store the result of the block expression on the assigned slot for this symbol
                 Emit(body, body.StoreOperation, symbol.Index, symbol.Type.GetSize());
             }
+        }
+
+        protected void CompileBlock(FunctionDefinition? frame, InstructionsDefinition body, SST.Expressions.Block block)
+        {
+            foreach (var childBinding in block.Bindings)
+            {
+                CompileBinding(frame, body, childBinding);
+            }
+
+            CompileExpression(frame, body, block.Expression);
+        }
+
+        protected void CompileExpression(FunctionDefinition? frame, InstructionsDefinition body, SST.Expression expression)
+        {
+            #region Literals
+
+            if (expression is SST.Literals.IntLiteral intLit)
+            {
+                Emit(body, OpCode.PushInt, intLit.GetSyntaxNode<AST.Literals.IntLiteral>().Value);
+            }
+            else if (expression is SST.Literals.DecimalLiteral decLit)
+            {
+                Emit(body, OpCode.PushDec, decLit.GetSyntaxNode<AST.Literals.DecimalLiteral>().Value);
+            }
+            else if (expression is SST.Literals.BoolLiteral boolLit)
+            {
+                Emit(body, boolLit.GetSyntaxNode<AST.Literals.BoolLiteral>().Value 
+                    ? OpCode.PushTrue
+                    : OpCode.PushFalse);
+            }
+            // TODO string literals
+
+            #endregion
+
+            // TODO Add type inference, auto-cast to all operators
+            // TODO Implement decimal operators compilation
+
+            #region Arithmetic Operators
+
+            else if (expression is SST.Operators.Arithmetic.AddOp addOp)
+            {
+                CompileExpression(frame, body, addOp.Left);
+                CompileImplicitCast(body, addOp.Left.Type.Value, addOp.Type.Value);
+                CompileExpression(frame, body, addOp.Right);
+                CompileImplicitCast(body, addOp.Right.Type.Value, addOp.Type.Value);
+
+                var addCode = addOp.Type.Value switch
+                {
+                    IntType => OpCode.AddInt,
+                    DecimalType => OpCode.AddDec,
+                    _ => throw new Exception($"No OpCode valid to perform addition of {addOp.Type.Value.Symbol.FullPath}"),
+                };
+
+                Emit(body, addCode);
+            }
+            else if (expression is SST.Operators.Arithmetic.SubOp subOp)
+            {
+                CompileExpression(frame, body, subOp.Left);
+                CompileImplicitCast(body, subOp.Left.Type.Value, subOp.Type.Value);
+                CompileExpression(frame, body, subOp.Right);
+                CompileImplicitCast(body, subOp.Right.Type.Value, subOp.Type.Value);
+
+                var subCode = subOp.Type.Value switch
+                {
+                    IntType => OpCode.SubInt,
+                    DecimalType => OpCode.SubDec,
+                    _ => throw new Exception($"No OpCode valid to perform subtraction of {subOp.Type.Value.Symbol.FullPath}"),
+                };
+
+                Emit(body, subCode);
+            }
+            else if (expression is SST.Operators.Arithmetic.DivOp divOp)
+            {
+                CompileExpression(frame, body, divOp.Left);
+                CompileImplicitCast(body, divOp.Left.Type.Value, divOp.Type.Value);
+                CompileExpression(frame, body, divOp.Right);
+                CompileImplicitCast(body, divOp.Right.Type.Value, divOp.Type.Value);
+
+                var divCode = divOp.Type.Value switch
+                {
+                    IntType => OpCode.DivInt,
+                    DecimalType => OpCode.DivInt,
+                    _ => throw new Exception($"No OpCode valid to perform division of {divOp.Type.Value.Symbol.FullPath}"),
+                };
+
+                Emit(body, divCode);
+            }
+            else if (expression is SST.Operators.Arithmetic.MulOp mulOp)
+            {
+                CompileExpression(frame, body, mulOp.Left);
+                CompileImplicitCast(body, mulOp.Left.Type.Value, mulOp.Type.Value);
+                CompileExpression(frame, body, mulOp.Right);
+                CompileImplicitCast(body, mulOp.Right.Type.Value, mulOp.Type.Value);
+
+                var mulCode = mulOp.Type.Value switch
+                {
+                    IntType => OpCode.MulInt,
+                    DecimalType => OpCode.MulDec,
+                    _ => throw new Exception($"No OpCode valid to perform multiplication of {mulOp.Type.Value.Symbol.FullPath}"),
+                };
+
+                Emit(body, mulCode);
+            }
+            else if (expression is SST.Operators.Arithmetic.NegOp negOp)
+            {
+                CompileExpression(frame, body, negOp.Right);
+                CompileImplicitCast(body, negOp.Right.Type.Value, negOp.Type.Value);
+
+                var negCode = negOp.Type.Value switch
+                {
+                    IntType => OpCode.NegInt,
+                    DecimalType => OpCode.NegInt,
+                    _ => throw new Exception($"No OpCode valid to perform negation of {negOp.Type.Value.Symbol.FullPath}"),
+                };
+
+                Emit(body, negCode);
+            }
+            else if (expression is SST.Operators.Arithmetic.PowOp powOp)
+            {
+                CompileExpression(frame, body, powOp.Left);
+                CompileImplicitCast(body, powOp.Left.Type.Value, powOp.Type.Value);
+                CompileExpression(frame, body, powOp.Right);
+                CompileImplicitCast(body, powOp.Right.Type.Value, powOp.Type.Value);
+
+                var powCode = powOp.Type.Value switch
+                {
+                    IntType => OpCode.PowInt,
+                    DecimalType => OpCode.PowDec,
+                    _ => throw new Exception($"No OpCode valid to perform power of {powOp.Type.Value.Symbol.FullPath}"),
+                };
+
+                Emit(body, powCode);
+            }
+
+            #endregion
+
+            #region Comparison Operators
+
+            else if (expression is SST.Operators.Comparison.EqOp eqOp)
+            {
+                CompileExpression(frame, body, eqOp.Left);
+                CompileImplicitCast(body, eqOp.Left.Type.Value, eqOp.OperationType.Value);
+                CompileExpression(frame, body, eqOp.Right);
+                CompileImplicitCast(body, eqOp.Right.Type.Value, eqOp.OperationType.Value);
+
+                var eqCode = eqOp.OperationType.Value switch
+                {
+                    IntType => OpCode.EqInt,
+                    DecimalType => OpCode.EqDec,
+                    BoolType => OpCode.EqBool,
+                    _ => throw new Exception($"No OpCode valid to perform equality of {eqOp.OperationType.Value.Symbol.FullPath}"),
+                };
+
+                Emit(body, eqCode);
+            }
+            else if (expression is SST.Operators.Comparison.NeqOp neqOp)
+            {
+                CompileExpression(frame, body, neqOp.Left);
+                CompileImplicitCast(body, neqOp.Left.Type.Value, neqOp.OperationType.Value);
+                CompileExpression(frame, body, neqOp.Right);
+                CompileImplicitCast(body, neqOp.Right.Type.Value, neqOp.OperationType.Value);
+
+                var neqCode = neqOp.OperationType.Value switch
+                {
+                    IntType => OpCode.NeqInt,
+                    DecimalType => OpCode.NeqDec,
+                    BoolType => OpCode.NeqBool,
+                    _ => throw new Exception($"No OpCode valid to perform inequality of {neqOp.OperationType.Value.Symbol.FullPath}"),
+                };
+
+                Emit(body, neqCode);
+            }
+            else if (expression is SST.Operators.Comparison.LtOp ltOp)
+            {
+                CompileExpression(frame, body, ltOp.Left);
+                CompileImplicitCast(body, ltOp.Left.Type.Value, ltOp.OperationType.Value);
+                CompileExpression(frame, body, ltOp.Right);
+                CompileImplicitCast(body, ltOp.Right.Type.Value, ltOp.OperationType.Value);
+
+                var neqCode = ltOp.OperationType.Value switch
+                {
+                    IntType => OpCode.LtInt,
+                    DecimalType => OpCode.LtDec,
+                    _ => throw new Exception($"No OpCode valid to perform less than of {ltOp.OperationType.Value.Symbol.FullPath}"),
+                };
+
+                Emit(body, neqCode);
+            }
+            else if (expression is SST.Operators.Comparison.LteOp lteOp)
+            {
+                CompileExpression(frame, body, lteOp.Left);
+                CompileImplicitCast(body, lteOp.Left.Type.Value, lteOp.OperationType.Value);
+                CompileExpression(frame, body, lteOp.Right);
+                CompileImplicitCast(body, lteOp.Right.Type.Value, lteOp.OperationType.Value);
+
+                var lteCode = lteOp.OperationType.Value switch
+                {
+                    IntType => OpCode.LteInt,
+                    DecimalType => OpCode.LteDec,
+                    _ => throw new Exception($"No OpCode valid to perform less than or equal of {lteOp.OperationType.Value.Symbol.FullPath}"),
+                };
+
+                Emit(body, lteCode);
+            }
+            else if (expression is SST.Operators.Comparison.GtOp gtOp)
+            {
+                CompileExpression(frame, body, gtOp.Left);
+                CompileImplicitCast(body, gtOp.Left.Type.Value, gtOp.OperationType.Value);
+                CompileExpression(frame, body, gtOp.Right);
+                CompileImplicitCast(body, gtOp.Right.Type.Value, gtOp.OperationType.Value);
+
+                var gtCode = gtOp.OperationType.Value switch
+                {
+                    IntType => OpCode.GtInt,
+                    DecimalType => OpCode.GtDec,
+                    _ => throw new Exception($"No OpCode valid to perform greater than of {gtOp.OperationType.Value.Symbol.FullPath}"),
+                };
+
+                Emit(body, gtCode);
+            }
+            else if (expression is SST.Operators.Comparison.GteOp gteOp)
+            {
+                CompileExpression(frame, body, gteOp.Left);
+                CompileImplicitCast(body, gteOp.Left.Type.Value, gteOp.OperationType.Value);
+                CompileExpression(frame, body, gteOp.Right);
+                CompileImplicitCast(body, gteOp.Right.Type.Value, gteOp.OperationType.Value);
+
+                var gteCode = gteOp.OperationType.Value switch
+                {
+                    IntType => OpCode.GteInt,
+                    DecimalType => OpCode.GteDec,
+                    _ => throw new Exception($"No OpCode valid to perform greater than or equal of {gteOp.OperationType.Value.Symbol.FullPath}"),
+                };
+
+                Emit(body, gteCode);
+            }
+
+            #endregion
+
+            #region Logic Operators
+
+            else if (expression is SST.Operators.Logic.AndOp andOp)
+            {
+                var falseLabel = CreateLabelPlaceholder(body);
+                var endLabel = CreateLabelPlaceholder(body);
+
+                CompileExpression(frame, body, andOp.Left);
+                // If this value is false, short circuit it
+                Emit(body, OpCode.JumpCond, falseLabel);
+                // If we reach this instruction, then the first operand was true, so now
+                // the result of the operation is actually whatever the result of the second operand is
+                CompileExpression(frame, body, andOp.Right);
+                // Hence after the expression we can jump right away to the end of the operation
+                Emit(body, OpCode.Jump, endLabel);
+                // This code is only reached if the first operand is false
+                AssignLabel(body, falseLabel);
+                Emit(body, OpCode.PushFalse);
+                AssignLabel(body, endLabel);
+            }
+            else if (expression is SST.Operators.Logic.OrOp orOp)
+            {
+                var trueLabel = CreateLabelPlaceholder(body);
+                var endLabel = CreateLabelPlaceholder(body);
+
+                CompileExpression(frame, body, orOp.Left);
+                // Since we want to jump when this is true, and JumpCond jumps when the value is false, we have to negate it first
+                Emit(body, OpCode.Not);
+                // If this value is true, short circuit it
+                Emit(body, OpCode.JumpCond, trueLabel);
+                // If we reach this instruction, then the first operand was false, so now
+                // the result of the operation is actually whatever the result of the second operand is
+                CompileExpression(frame, body, orOp.Right);
+                // Hence after the expression we can jump right away to the end of the operation
+                Emit(body, OpCode.Jump, endLabel);
+                // This code is only reached if the first operand is true
+                AssignLabel(body, trueLabel);
+                Emit(body, OpCode.PushTrue);
+                AssignLabel(body, endLabel);
+            }
+            else if (expression is SST.Operators.Logic.NotOp notOp)
+            {
+                CompileExpression(frame, body, notOp.Right);
+                Emit(body, OpCode.Not);
+            }
+
+            #endregion
+
+            else if (expression is SST.Expressions.Application application)
+            {
+                var functionType = (FunctionTypeDefinition)application.Func.Type.Value;
+
+                // Reserve space for the return value
+                var returnSize = functionType.ReturnType.GetSize();
+
+                if (returnSize > 0)
+                {
+                    Emit(body, OpCode.PushN, returnSize);
+                }
+
+                // TODO Emit and build the captures context object
+
+                int argsSize = 0;
+                int argIndex = 0;
+
+                foreach (var arg in application.Args)
+                {
+                    CompileExpression(frame, body, arg);
+                    CompileImplicitCast(body, arg.Type.Value, functionType.Arguments[argIndex].Type);
+
+                    argsSize += functionType.Arguments[argIndex].Type.GetSize();
+                    argIndex += 1;
+                }
+
+                CompileExpression(frame, body, application.Func);
+                Emit(body, OpCode.Call);
+
+                if (argsSize > 0)
+                {
+                    Emit(body, OpCode.PopN, argsSize);
+                }
+            }
+            else if (expression is SST.Expressions.Block block)
+            {
+                CompileBlock(frame, body, block);
+            }
+            else if (expression is SST.Expressions.IfNode ifNode)
+            {
+                var elseLabel = CreateLabelPlaceholder(body);
+                var endLabel = CreateLabelPlaceholder(body);
+                
+                // Compile the condition expression
+                CompileExpression(frame, body, ifNode.Condition);
+
+                // If the condition is false, conditionally jump to "Else" label
+                // NOTE JumpCond only performs the jump if the value at the top of the stack is false
+                Emit(body, OpCode.JumpCond, elseLabel);
+                // Otherwise we will execute the Then expression
+                CompileExpression(frame, body, ifNode.ThenExpression);
+                // After the end of the Then expression, always jump to the "End" label
+                // To avoid executing both the Then and Else expressions at the same time
+                Emit(body, OpCode.Jump, endLabel);
+                AssignLabel(body, elseLabel);
+                CompileExpression(frame, body, ifNode.ElseExpression);
+                AssignLabel(body, endLabel);
+            }
+            else if (expression is SST.Identifier identifier)
+            {
+                CompileSymbol(frame, body, identifier.Symbol.Value);
+            }
+            else
+            {
+                throw new Exception($"Compile not yet implemented for {expression.GetType().Name}");
+            }
+        }
+
+        protected void CompileSymbol(FunctionDefinition? frame, InstructionsDefinition body, SymbolsScopeEntry symbol)
+        {
+            if (symbol.IsParameter)
+            {
+                if (frame == null)
+                {
+                    throw new Exception("Cannot compile a parameter symbol in a frame-less environment!");
+                }
+
+                var parameter = frame.GetVariable(symbol);
+
+                Emit(body, parameter.LoadOperation, parameter.Index, parameter.Type.GetSize());
+            }
+            else if (symbol.IsCapture)
+            {
+                throw new NotImplementedException();
+            }
+            else if (symbol.IsBinding)
+            {
+                SymbolDefinition variable;
+
+                if (symbol.BindingGlobal!.Value)
+                {
+                    variable = Global.GetVariable(symbol);
+                }
+                else
+                {
+                    variable = body.GetVariable(symbol);
+                }
+
+                Emit(body, variable.LoadOperation, variable.Index, variable.Type.GetSize());
+            }
+            else if (symbol.IsType)
+            {
+                Emit(body, OpCode.PushInt, symbol.Type.Id);
+            }
+        }
+
+        protected void CompileImplicitCast(InstructionsDefinition body, TypeDefinition sourceType, TypeDefinition targetType)
+        {
+            // If the types are exactly the same, nothing needs to be done
+            if (sourceType == targetType)
+            {
+                return;
+            }
+
+            if (sourceType is IntType && targetType is DecimalType)
+            {
+                Emit(body, OpCode.IntToDec);
+            }
+            else
+            {
+                throw new Exception($"No implicit cast found from type {sourceType.Symbol.FullPath} and {targetType.Symbol.FullPath}");
+            }
+        }
+
+        protected void Emit(InstructionsDefinition body, OpCode opcode, params object[] args)
+        {
+            Emit(body, new Instruction(opcode, args));
+        }
+
+        protected void Emit(InstructionsDefinition body, Instruction instruction)
+        {
+            body.Instructions.Add(instruction);
         }
 
         /// <summary>
@@ -303,7 +730,7 @@ namespace CronusLang.Compiler
                             scopeOffset = offsetFound;
 
                             break;
-                        } 
+                        }
                         // We do not want to search further than the root scope 
                         else if (scopeToSearch == root.Scope)
                         {
@@ -351,231 +778,14 @@ namespace CronusLang.Compiler
             return maximumOffset;
         }
 
-        protected void CompileBlock(FunctionDefinition? frame, InstructionsDefinition body, SST.Expressions.Block block)
-        {
-            foreach (var childBinding in block.Bindings)
-            {
-                CompileBinding(frame, body, childBinding);
-            }
-
-            CompileExpression(frame, body, block.Expression);
-        }
-
-        protected void CompileExpression(FunctionDefinition? frame, InstructionsDefinition body, SST.Expression expression)
-        {
-            #region Literals
-
-            if (expression is SST.Literals.IntLiteral intLit)
-            {
-                Emit(body, OpCode.PushInt, intLit.GetSyntaxNode<AST.Literals.IntLiteral>().Value);
-            }
-            // TODO Bool, decimal, string literals
-
-            #endregion
-
-            // TODO Add type inference, auto-cast to all operators
-            // TODO Implement decimal operators compilation
-
-            #region Arithmetic Operators
-
-            else if (expression is SST.Operators.Arithmetic.AddOp addOp)
-            {
-                CompileExpression(frame, body, addOp.Left);
-                CompileExpression(frame, body, addOp.Right);
-                Emit(body, OpCode.AddInt);
-            }
-            else if (expression is SST.Operators.Arithmetic.SubOp subOp)
-            {
-                CompileExpression(frame, body, subOp.Left);
-                CompileExpression(frame, body, subOp.Right);
-                Emit(body, OpCode.SubInt);
-            }
-            else if (expression is SST.Operators.Arithmetic.DivOp divOp)
-            {
-                CompileExpression(frame, body, divOp.Left);
-                CompileExpression(frame, body, divOp.Right);
-                Emit(body, OpCode.DivInt);
-            }
-            else if (expression is SST.Operators.Arithmetic.MulOp mulOp)
-            {
-                CompileExpression(frame, body, mulOp.Left);
-                CompileExpression(frame, body, mulOp.Right);
-                Emit(body, OpCode.MulInt);
-            }
-            else if (expression is SST.Operators.Arithmetic.NegOp negOp)
-            {
-                CompileExpression(frame, body, negOp.Right);
-                Emit(body, OpCode.NegInt);
-            }
-            else if (expression is SST.Operators.Arithmetic.PowOp powOp)
-            {
-                CompileExpression(frame, body, powOp.Left);
-                CompileExpression(frame, body, powOp.Right);
-                Emit(body, OpCode.PowInt);
-            }
-
-            #endregion
-
-            #region Comparison Operators
-
-            else if (expression is SST.Operators.Comparison.EqOp eqOp)
-            {
-                CompileExpression(frame, body, eqOp.Left);
-                CompileExpression(frame, body, eqOp.Right);
-                Emit(body, OpCode.Eq);
-            }
-            else if (expression is SST.Operators.Comparison.NeqOp neqOp)
-            {
-                CompileExpression(frame, body, neqOp.Left);
-                CompileExpression(frame, body, neqOp.Right);
-                Emit(body, OpCode.Neq);
-            }
-            else if (expression is SST.Operators.Comparison.LtOp ltOp)
-            {
-                CompileExpression(frame, body, ltOp.Left);
-                CompileExpression(frame, body, ltOp.Right);
-                Emit(body, OpCode.LtInt);
-            }
-            else if (expression is SST.Operators.Comparison.LteOp lteOp)
-            {
-                CompileExpression(frame, body, lteOp.Left);
-                CompileExpression(frame, body, lteOp.Right);
-                Emit(body, OpCode.LteInt);
-            }
-            else if (expression is SST.Operators.Comparison.GtOp gtOp)
-            {
-                CompileExpression(frame, body, gtOp.Left);
-                CompileExpression(frame, body, gtOp.Right);
-                Emit(body, OpCode.GtInt);
-            }
-            else if (expression is SST.Operators.Comparison.GteOp gteOp)
-            {
-                CompileExpression(frame, body, gteOp.Left);
-                CompileExpression(frame, body, gteOp.Right);
-                Emit(body, OpCode.GteInt);
-            }
-
-            #endregion
-
-            else if (expression is SST.Expressions.Application application)
-            {
-                // Reserve space for the return value
-                var returnSize = ((FunctionTypeDefinition)application.Func.Type.Value).ReturnType.GetSize();
-
-                if (returnSize > 0)
-                {
-                    Emit(body, OpCode.PushN, returnSize);
-                }
-
-                // TODO Emit and build the captures context object
-
-                int argsSize = 0;
-
-                foreach (var arg in application.Args)
-                {
-                    CompileExpression(frame, body, arg);
-
-                    argsSize += arg.Type.Value.GetSize();
-                }
-
-                CompileExpression(frame, body, application.Func);
-                Emit(body, OpCode.Call);
-
-                if (argsSize > 0)
-                {
-                    Emit(body, OpCode.PopN, argsSize);
-                }
-            }
-            else if (expression is SST.Expressions.Block block)
-            {
-                CompileBlock(frame, body, block);
-            }
-            else if (expression is SST.Expressions.IfNode ifNode)
-            {
-                var elseLabel = CreateLabelPlaceholder(body);
-                var endLabel = CreateLabelPlaceholder(body);
-                
-                // Compile the condition expression
-                CompileExpression(frame, body, ifNode.Condition);
-
-                // If the condition is false, conditionally jump to "Else" label
-                // NOTE JumpCond only performs the jump if the value at the top of the stack is false
-                Emit(body, OpCode.JumpCond, elseLabel);
-                // Otherwise we will execute the Then expression
-                CompileExpression(frame, body, ifNode.ThenExpression);
-                // After the end of the Then expression, always jump to the "End" label
-                // To avoid executing both the Then and Else expressions at the same time
-                Emit(body, OpCode.Jump, endLabel);
-                AssignLabel(body, elseLabel);
-                CompileExpression(frame, body, ifNode.ElseExpression);
-                AssignLabel(body, endLabel);
-            }
-            else if (expression is SST.Identifier identifier)
-            {
-                CompileSymbol(frame, body, identifier.Symbol.Value);
-            }
-            else
-            {
-                throw new Exception($"Compilte not yet implemented for {expression.GetType().Name}");
-            }
-        }
-
-        public void CompileSymbol(FunctionDefinition? frame, InstructionsDefinition body, SymbolsScopeEntry symbol)
-        {
-            if (symbol.IsParameter)
-            {
-                if (frame == null)
-                {
-                    throw new Exception("Cannot compile a parameter symbol in a frame-less environment!");
-                }
-
-                var parameter = frame.GetVariable(symbol);
-
-                Emit(body, parameter.LoadOperation, parameter.Index, parameter.Type.GetSize());
-            }
-            else if (symbol.IsCapture)
-            {
-                throw new NotImplementedException();
-            }
-            else if (symbol.IsBinding)
-            {
-                SymbolDefinition variable;
-
-                if (symbol.BindingGlobal!.Value)
-                {
-                    variable = Global.GetVariable(symbol);
-                }
-                else
-                {
-                    variable = body.GetVariable(symbol);
-                }
-
-                Emit(body, variable.LoadOperation, variable.Index, variable.Type.GetSize());
-            }
-            else if (symbol.IsType)
-            {
-                Emit(body, OpCode.PushInt, symbol.Type.Id);
-            }
-        }
-
-        public LabelPlaceholder CreateLabelPlaceholder(InstructionsDefinition body)
+        protected LabelPlaceholder CreateLabelPlaceholder(InstructionsDefinition body)
         {
             return new LabelPlaceholder(_labelIdCounter++);
         }
 
-        public void AssignLabel(InstructionsDefinition body, LabelPlaceholder label)
+        protected void AssignLabel(InstructionsDefinition body, LabelPlaceholder label)
         {
             body.Labels[label.LabelId] = body.Instructions.Count();
-        }
-
-        public void Emit(InstructionsDefinition body, OpCode opcode, params object[] args)
-        {
-            Emit(body, new Instruction(opcode, args));
-        }
-
-        public void Emit(InstructionsDefinition body, Instruction instruction)
-        {
-            body.Instructions.Add(instruction);
         }
 
         #endregion
@@ -746,6 +956,14 @@ namespace CronusLang.Compiler
                 else if (arg is uint argUint)
                 {
                     byteCode.Write(argUint);
+                }
+                else if (arg is decimal argDecimal)
+                {
+                    byteCode.Write(argDecimal);
+                }
+                else if (arg is bool argBool)
+                {
+                    byteCode.Write(argBool);
                 }
                 else if (arg is string argString)
                 {

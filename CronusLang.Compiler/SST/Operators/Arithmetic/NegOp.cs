@@ -1,4 +1,5 @@
-﻿using System;
+﻿using CronusLang.TypeSystem;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -19,18 +20,16 @@ namespace CronusLang.Compiler.SST.Operators.Arithmetic
             {
                 if (Right.Type.TrackDependency(context, out var rightType))
                 {
-                    var intType = context.IntType;
+                    TypeDefinition opType;
 
-                    if (rightType == intType)
-                    {
-                        Type.Resolve(context, intType);
-                    }
+                    if (rightType == context.IntType) opType = context.IntType;
+                    else if (rightType == context.DecimalType) opType = context.DecimalType;
                     else
                     {
-                        // TODO What to do when the type checker finds an error?
-                        // Should semantic properties be able to be resolved with errors?
-                        throw new NotImplementedException();
+                        throw new Exception($"Invalid negation operation for {rightType.Symbol.FullPath}");
                     }
+
+                    Type.Resolve(context, opType);
                 }
             }
         }

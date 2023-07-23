@@ -24,10 +24,6 @@ namespace CronusLang.ByteCode
         Jump,
         JumpCond,
 
-        // Generic Operators
-        Eq,
-        Neq,
-
         // Integer
         PushInt,
         AddInt,
@@ -37,6 +33,8 @@ namespace CronusLang.ByteCode
         NegInt,
         PowInt,
 
+        EqInt,
+        NeqInt,
         LtInt,
         LteInt,
         GtInt,
@@ -51,6 +49,8 @@ namespace CronusLang.ByteCode
         NegDec,
         PowDec,
 
+        EqDec,
+        NeqDec,
         LtDec,
         LteDec,
         GtDec,
@@ -60,6 +60,8 @@ namespace CronusLang.ByteCode
         PushTrue,
         PushFalse,
         Not,
+        EqBool,
+        NeqBool,
 
         // Conversion
         IntToDec,

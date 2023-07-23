@@ -93,7 +93,15 @@ namespace CronusLang.ByteCode
         
         public void Write(bool boolean)
         {
-            Write(boolean ? 1 : 0);
+            Write(boolean ? (byte)1 : (byte)0);
+        }
+
+        public void Write(decimal number)
+        {
+            var bits = decimal.GetBits(number);
+            var bytes = new byte[bits.Length * sizeof(int)];
+            for (int i = 0; i < bits.Length; i++) Array.Copy(BitConverter.GetBytes(bits[i]), 0, bytes, i * sizeof(int), sizeof(int));
+            Write(bytes);
         }
 
         public void Write(uint number)
@@ -155,9 +163,7 @@ namespace CronusLang.ByteCode
 
         public bool ReadBool()
         {
-            Span<byte> buffer = stackalloc byte[sizeof(int)];
-            Read(buffer);
-            return BitConverter.ToInt32(buffer) != 0;
+            return Read() != 0;
         }
 
         public int ReadInt()
@@ -165,6 +171,22 @@ namespace CronusLang.ByteCode
             Span<byte> buffer = stackalloc byte[sizeof(int)];
             Read(buffer);
             return BitConverter.ToInt32(buffer);
+        }
+
+        public decimal ReadDec()
+        {
+            Span<byte> buffer = stackalloc byte[sizeof(decimal)];
+            Span<int> parts = stackalloc int[sizeof(decimal) / sizeof(int)];
+
+            Read(buffer);
+
+            for (int i = 0; i < parts.Length; i++) parts[i] = BitConverter.ToInt32(buffer.Slice(i * sizeof(int), sizeof(int)));
+
+            bool sign = (parts[3] & 0x80000000) != 0;
+
+            byte scale = (byte)((parts[3] >> 16) & 0x7F);
+            
+            return new Decimal(parts[0], parts[1], parts[2], sign, scale);
         }
 
         public uint ReadUInt()
@@ -216,9 +238,7 @@ namespace CronusLang.ByteCode
 
         public bool PopBool()
         {
-            Span<byte> buffer = stackalloc byte[sizeof(int)];
-            Pop(buffer);
-            return BitConverter.ToInt32(buffer) != 0;
+            return Pop() != 0;
         }
 
         public int PopInt()
@@ -226,6 +246,22 @@ namespace CronusLang.ByteCode
             Span<byte> buffer = stackalloc byte[sizeof(int)];
             Pop(buffer);
             return BitConverter.ToInt32(buffer);
+        }
+
+        public decimal PopDec()
+        {
+            Span<byte> buffer = stackalloc byte[sizeof(decimal)];
+            Span<int> parts = stackalloc int[sizeof(decimal) / sizeof(int)];
+
+            Pop(buffer);
+
+            for (int i = 0; i < parts.Length; i++) parts[i] = BitConverter.ToInt32(buffer.Slice(i * sizeof(int), sizeof(int)));
+
+            bool sign = (parts[3] & 0x80000000) != 0;
+
+            byte scale = (byte)((parts[3] >> 16) & 0x7F);
+
+            return new Decimal(parts[0], parts[1], parts[2], sign, scale);
         }
 
         public uint PopUInt()

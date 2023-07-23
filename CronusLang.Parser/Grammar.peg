@@ -103,10 +103,14 @@ accessor <Node> -memoize
 
 atom <Node> -memoize
     = expr_identifier
+    / negate
     / literal
-    / s:POS MINUS primary:literal { new NegOp(primary, s) }
+    / s:POS MINUS primary:literal e:POS { new NegOp(primary, s + e) }
     / block
     / LPAR _ expr:expr _ RPAR { expr }
+
+negate <NotOp>
+    = s:POS NOT _ expr:expr e:POS { new NotOp(expr, s + e) }
 
 block <Block>
     = s:POS LBRACK _ bindings:bindings_list _ expr:expr _ RBRACK e:POS { new Block(bindings, expr, s + e) }
@@ -123,16 +127,20 @@ identifier <Identifier>
 literal <Node>
     = literal_decimal
     / literal_int
+    / literal_bool
 
 literal_decimal <DecimalLiteral>
     = s:POS value:([0-9]+ "." [0-9]+) e:POS { new DecimalLiteral(decimal.Parse(value, CultureInfo.InvariantCulture), s + e) }
 
 literal_int <IntLiteral>
     = s:POS value:([0-9][0-9]*) e:POS { new IntLiteral(int.Parse(value), s + e) }
+    
+literal_bool <BoolLiteral>
+    = s:POS TRUE e:POS { new BoolLiteral(true, s + e) }
+    / s:POS FALSE e:POS { new BoolLiteral(false, s + e) }
 
 literal_string <StringLiteral> = s:POS "\"" chars:unicode* ("\"" / #ERROR{ "Expected '\"'" }) e:POS { new StringLiteral(string.Concat(chars), s + e) }
 
-// TODO literal_bool
 // TODO literal_null
 
 
@@ -156,17 +164,20 @@ _ -memoize = "" [ \t\r\n]*
 ALPHANUMERIC = [a-zA-Z0-9_]+
 IDENTIFIER = chars:([a-zA-Z_][a-zA-Z0-9_]*) !{{ 
     string s = string.Concat(chars);
-    return s == "const" || s == "let" || s == "and" || s == "or" || s == "if" || s == "then" || s == "elseif" || s == "else";
+    return s == "const" || s == "let" || s == "not" || s == "and" || s == "or" || s == "if" || s == "then" || s == "elseif" || s == "else" || s == "true" || s == "false";
 }}
-KEYWORD = CONST / LET / AND / OR / IF / THEN / ELSEIF / ELSE
+KEYWORD = CONST / LET / AND / OR / IF / THEN / ELSEIF / ELSE / NOT / TRUE / FALSE
 CONST = "const" !ALPHANUMERIC
 LET = "let" !ALPHANUMERIC
+NOT = "not" !ALPHANUMERIC
 AND = "and" !ALPHANUMERIC
 OR = "or" !ALPHANUMERIC
 IF = "if" !ALPHANUMERIC
 THEN = "then" !ALPHANUMERIC
 ELSEIF = "elseif" !ALPHANUMERIC
 ELSE = "else" !ALPHANUMERIC
+TRUE = "true" !ALPHANUMERIC
+FALSE = "false" !ALPHANUMERIC
 GTE = ">="
 GT = ">" !"="
 LTE = "<="

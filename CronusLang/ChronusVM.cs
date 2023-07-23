@@ -86,52 +86,235 @@ namespace CronusLang
                 // Always guaranteed to not fail because OpCodes take only a single byte, and we are not yet at the EOF
                 var opcode = ByteCode.ReadOpCode();
 
+                #region Integer
+
                 if (opcode == OpCode.PushInt)
                 {
-                    #region PushInt
-
                     Stack.Write(ByteCode.ReadInt());
-
-                    #endregion
                 }
                 else if (opcode == OpCode.AddInt)
                 {
-                    #region AddInt
-
                     int result = Stack.PopInt() + Stack.PopInt();
                     Stack.Write(result);
-
-                    #endregion
                 }
                 else if (opcode == OpCode.SubInt)
                 {
-                    #region SubInt
-
                     var op2 = Stack.PopInt();
                     var op1 = Stack.PopInt();
                     Stack.Write(op1 - op2);
-
-                    #endregion
                 }
                 else if (opcode == OpCode.MulInt)
                 {
-                    #region SubInt
-
-                    var result = Stack.PopInt() * Stack.PopInt();
-                    Stack.Write(result);
-
-                    #endregion
+                    Stack.Write(Stack.PopInt() * Stack.PopInt());
                 }
                 else if (opcode == OpCode.DivInt)
                 {
-                    #region DivInt
-
                     var op2 = Stack.PopInt();
                     var op1 = Stack.PopInt();
                     Stack.Write(op1 / op2);
-
-                    #endregion
                 }
+                else if (opcode == OpCode.NegInt)
+                {
+                    var op1 = Stack.PopInt();
+                    Stack.Write(-op1);
+                }
+                else if (opcode == OpCode.PowInt)
+                {
+                    var op2 = Stack.PopInt();
+                    var op1 = Stack.PopInt();
+                    Stack.Write((decimal)Math.Pow(op1, op2));
+                }
+                else if (opcode == OpCode.EqInt)
+                {
+                    var op2 = Stack.PopInt();
+
+                    var op1 = Stack.PopInt();
+
+                    Stack.Write(op1 == op2);
+                }
+                else if (opcode == OpCode.NeqInt)
+                {
+                    var op2 = Stack.PopInt();
+
+                    var op1 = Stack.PopInt();
+
+                    Stack.Write(op1 != op2);
+                }
+                else if (opcode == OpCode.LtInt)
+                {
+                    var op2 = Stack.PopInt();
+
+                    var op1 = Stack.PopInt();
+
+                    Stack.Write(op1 < op2);
+                }
+                else if (opcode == OpCode.LteInt)
+                {
+                    var op2 = Stack.PopInt();
+
+                    var op1 = Stack.PopInt();
+
+                    Stack.Write(op1 <= op2);
+                }
+                else if (opcode == OpCode.GtInt)
+                {
+                    var op2 = Stack.PopInt();
+
+                    var op1 = Stack.PopInt();
+
+                    Stack.Write(op1 > op2);
+                }
+                else if (opcode == OpCode.GteInt)
+                {
+                    var op2 = Stack.PopInt();
+
+                    var op1 = Stack.PopInt();
+
+                    Stack.Write(op1 >= op2);
+                }
+
+                #endregion
+
+                #region Decimal
+
+                else if (opcode == OpCode.PushDec)
+                {
+                    Stack.Write(ByteCode.ReadDec());
+                }
+                else if (opcode == OpCode.AddDec)
+                {
+                    Stack.Write(Stack.PopDec() + Stack.PopDec());
+                }
+                else if (opcode == OpCode.SubDec)
+                {
+                    var op2 = Stack.PopDec();
+                    var op1 = Stack.PopDec();
+                    Stack.Write(op1 - op2);
+                }
+                else if (opcode == OpCode.MulDec)
+                {
+                    Stack.Write(Stack.PopDec() * Stack.PopDec());
+                }
+                else if (opcode == OpCode.DivDec)
+                {
+                    var op2 = Stack.PopDec();
+                    var op1 = Stack.PopDec();
+                    Stack.Write(op1 / op2);
+                }
+                else if (opcode == OpCode.NegDec)
+                {
+                    var op1 = Stack.PopInt();
+                    Stack.Write(-op1);
+                }
+                else if (opcode == OpCode.PowDec)
+                {
+                    var op2 = Stack.PopDec();
+                    var op1 = Stack.PopDec();
+                    Stack.Write((decimal)Math.Pow((double)op1, (double)op2));
+                }
+                else if (opcode == OpCode.EqDec)
+                {
+                    var op2 = Stack.PopDec();
+
+                    var op1 = Stack.PopDec();
+
+                    Stack.Write(op1 == op2);
+                }
+                else if (opcode == OpCode.NeqDec)
+                {
+                    var op2 = Stack.PopDec();
+
+                    var op1 = Stack.PopDec();
+
+                    Stack.Write(op1 != op2);
+                }
+                else if (opcode == OpCode.LtDec)
+                {
+                    var op2 = Stack.PopDec();
+
+                    var op1 = Stack.PopDec();
+
+                    Stack.Write(op1 < op2);
+                }
+                else if (opcode == OpCode.LteDec)
+                {
+                    var op2 = Stack.PopDec();
+
+                    var op1 = Stack.PopDec();
+
+                    Stack.Write(op1 <= op2);
+                }
+                else if (opcode == OpCode.GtDec)
+                {
+                    var op2 = Stack.PopDec();
+
+                    var op1 = Stack.PopDec();
+
+                    Stack.Write(op1 > op2);
+                }
+                else if (opcode == OpCode.GteDec)
+                {
+                    var op2 = Stack.PopDec();
+
+                    var op1 = Stack.PopDec();
+
+                    Stack.Write(op1 >= op2);
+                }
+
+                #endregion
+
+                #region Boolean
+
+                else if (opcode == OpCode.PushTrue)
+                {
+                    Stack.Write(true);
+                }
+                else if (opcode == OpCode.PushFalse)
+                {
+                    Stack.Write(false);
+                }
+                else if (opcode == OpCode.Not)
+                {
+                    Stack.Write(!Stack.ReadBool());
+                }
+                else if (opcode == OpCode.EqBool)
+                {
+                    var op2 = Stack.ReadBool();
+                    var op1 = Stack.ReadBool();
+
+                    Stack.Write(op1 == op2);
+                }
+                else if (opcode == OpCode.NeqBool)
+                {
+                    var op2 = Stack.ReadBool();
+                    var op1 = Stack.ReadBool();
+
+                    Stack.Write(op1 != op2);
+                }
+
+                #endregion
+
+                #region Casting
+
+                else if (opcode == OpCode.IntToDec)
+                {
+                    Stack.Write((decimal)Stack.PopInt());
+                }
+                else if (opcode == OpCode.DecToInt)
+                {
+                    Stack.Write((int)Stack.PopDec());
+                }
+                else if (opcode == OpCode.IntToBool)
+                {
+                    Stack.Write(Stack.PopInt() != 0);
+                }
+                else if (opcode == OpCode.BoolToInt)
+                {
+                    Stack.Write(Stack.PopBool() ? 1 : 0);
+                }
+
+                #endregion
+
                 else if (opcode == OpCode.PushSP)
                 {
                     Stack.Write(Registers.StackPointer);
@@ -366,14 +549,6 @@ namespace CronusLang
                     
                     Registers.FramePointer = Stack.PopInt();
                     Registers.InstructionPointer = Stack.PopInt();
-                }
-                else if (opcode == OpCode.LteInt)
-                {
-                    var op2 = Stack.PopInt();
-
-                    var op1 = Stack.PopInt();
-
-                    Stack.Write(op1 <= op2);
                 }
                 else if (opcode == OpCode.Jump)
                 {

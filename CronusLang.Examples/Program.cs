@@ -2,6 +2,7 @@
 using CronusLang.ByteCode;
 using CronusLang.Compiler;
 using CronusLang.Parser;
+using System.Diagnostics;
 
 var parser = new CronusParser();
 string code = @"
@@ -17,8 +18,16 @@ string code = @"
 	    }
     }
 
-    let main = fib 15;
+    let math :: Int i -> Decimal d -> Bool {
+        let n = i + d;
+        let cond = n > 0.5 and n < 5;
+
+        not cond
+    }
+
+    let main = math 0 2;
     ";
+
 var ast = parser.Parse(code);
 
 var compiler = new Compiler();
@@ -32,14 +41,19 @@ if (result.IsSuccessfull)
     Console.Write(compiler.AssembleText());
 
     var vm = new CronusVM(result.AssembledInstructions);
+    var clock = new Stopwatch();
+    clock.Start();
     vm.Execute();
+    clock.Stop();
 
     vm.Stack.Compact();
-    vm.Stack.Cursor = 0;
-    while (!vm.Stack.EOF)
-    {
-        Console.WriteLine(vm.Stack.Cursor.ToString("X8") + ": " + vm.Stack.ReadInt());
-    }
+    //vm.Stack.Cursor = 0;
+    //while (!vm.Stack.EOF)
+    //{
+    //    Console.WriteLine(vm.Stack.Cursor.ToString("X8") + ": " + vm.Stack.ReadInt());
+    //}
+    Console.WriteLine("Result: {0}", vm.Stack.PopBool());
+    Console.WriteLine("Elapsed time: {0}", clock.Elapsed);
 }
 else
 {

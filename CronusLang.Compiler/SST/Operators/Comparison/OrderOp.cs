@@ -8,7 +8,7 @@ using AST = CronusLang.Parser.AST;
 
 namespace CronusLang.Compiler.SST.Operators.Comparison
 {
-    public class EqOp : BinaryOperator
+    public abstract class OrderOp : BinaryOperator
     {
         #region Semantic Properties
 
@@ -16,7 +16,7 @@ namespace CronusLang.Compiler.SST.Operators.Comparison
 
         #endregion
 
-        public EqOp(SymbolsScope scope, AST.Operators.Comparison.EqOp syntaxNode, SemanticTransformer transformer) : base(scope, syntaxNode, transformer)
+        public OrderOp(SymbolsScope scope, AST.Operators.BinaryOperator syntaxNode, SemanticTransformer transformer) : base(scope, syntaxNode, transformer)
         {
             OperationType = new SemanticProperty<TypeDefinition>(this, nameof(OperationType));
         }
@@ -34,17 +34,16 @@ namespace CronusLang.Compiler.SST.Operators.Comparison
                 {
                     var leftType = Left.Type.Value;
                     var rightType = Right.Type.Value;
-                    
+
                     TypeDefinition opType;
 
                     if ((leftType, rightType) == (context.IntType, context.IntType)) opType = context.IntType;
                     else if ((leftType, rightType) == (context.IntType, context.DecimalType)) opType = context.DecimalType;
                     else if ((leftType, rightType) == (context.DecimalType, context.IntType)) opType = context.DecimalType;
                     else if ((leftType, rightType) == (context.DecimalType, context.DecimalType)) opType = context.DecimalType;
-                    else if ((leftType, rightType) == (context.BoolType, context.BoolType)) opType = context.BoolType;
                     else
                     {
-                        throw new Exception($"Invalid equality operation between {leftType.Symbol.FullPath} and {rightType.Symbol.FullPath}");
+                        throw new Exception($"Invalid order operation between {leftType.Symbol.FullPath} and {rightType.Symbol.FullPath}");
                     }
 
                     OperationType.Resolve(context, opType);

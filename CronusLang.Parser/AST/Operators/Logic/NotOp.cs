@@ -8,7 +8,7 @@ namespace CronusLang.Parser.AST.Operators.Logic
 {
     public class NotOp : UnaryOperator
     {
-        public NotOp(Node right, Location start) : base(right, start)
+        public NotOp(Node right, LocationSpan location) : base(right, location)
         {
         }
     }

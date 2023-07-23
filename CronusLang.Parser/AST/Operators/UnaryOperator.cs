@@ -10,7 +10,7 @@ namespace CronusLang.Parser.AST.Operators
     {
         public Node Right { get; protected set; }
 
-        public UnaryOperator(Node right, Location start) : base(start + right.Location)
+        public UnaryOperator(Node right, LocationSpan location) : base(location)
         {
             Right = right;
         }

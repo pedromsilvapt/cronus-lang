@@ -8,7 +8,7 @@ namespace CronusLang.Parser.AST.Operators.Arithmetic
 {
     public class NegOp : UnaryOperator
     {
-        public NegOp(Node right, Location start) : base(right, start)
+        public NegOp(Node right, LocationSpan location) : base(right, location)
         {
         }
     }

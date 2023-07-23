@@ -1,4 +1,5 @@
-﻿using System;
+﻿using CronusLang.TypeSystem;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -20,18 +21,18 @@ namespace CronusLang.Compiler.SST.Operators.Arithmetic
                 if (Left.Type.TrackDependency(context, out var leftType) &&
                     Right.Type.TrackDependency(context, out var rightType))
                 {
-                    var intType = context.IntType;
+                    TypeDefinition opType;
 
-                    if (leftType == intType && rightType == intType)
-                    {
-                        Type.Resolve(context, intType);
-                    }
+                    if ((leftType, rightType) == (context.IntType, context.IntType)) opType = context.IntType;
+                    else if ((leftType, rightType) == (context.IntType, context.DecimalType)) opType = context.DecimalType;
+                    else if ((leftType, rightType) == (context.DecimalType, context.IntType)) opType = context.DecimalType;
+                    else if ((leftType, rightType) == (context.DecimalType, context.DecimalType)) opType = context.DecimalType;
                     else
                     {
-                        // TODO What to do when the type checker finds an error?
-                        // Should semantic properties be able to be resolved with errors?
-                        throw new NotImplementedException();
+                        throw new Exception($"Invalid subtraction operation between {leftType.Symbol.FullPath} and {rightType.Symbol.FullPath}");
                     }
+
+                    Type.Resolve(context, opType);
                 }
             }
         }

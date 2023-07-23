@@ -19,7 +19,7 @@ namespace CronusLang.TypeSystem.Types
 
         public override bool IsAssignableFrom(TypeDefinition other)
         {
-            return other is DecimalType;
+            return other is DecimalType || other is IntType;
         }
     }
 }

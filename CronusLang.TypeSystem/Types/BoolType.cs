@@ -19,7 +19,7 @@ namespace CronusLang.TypeSystem.Types
 
         public override bool IsAssignableFrom(TypeDefinition other)
         {
-            return other is BoolType || other is IntType;
+            return other is BoolType;
         }
     }
 }
