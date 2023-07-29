@@ -8,7 +8,7 @@ namespace CronusLang.TypeSystem.Types
 {
     public class StringType : TypeDefinition
     {
-        public StringType(Symbol symbol) : base(symbol)
+        public StringType(SymbolIdentifier symbol) : base(symbol)
         {
         }
 

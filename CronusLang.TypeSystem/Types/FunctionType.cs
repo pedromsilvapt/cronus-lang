@@ -12,7 +12,7 @@ namespace CronusLang.TypeSystem.Types
 
         public TypeDefinition ReturnType { get; set; }
 
-        public FunctionTypeDefinition(Symbol symbol, List<FunctionTypeArgumentDefinition> arguments, TypeDefinition returnType) : base(symbol)
+        public FunctionTypeDefinition(SymbolIdentifier symbol, List<FunctionTypeArgumentDefinition> arguments, TypeDefinition returnType) : base(symbol)
         {
             Arguments = arguments;
             ReturnType = returnType;

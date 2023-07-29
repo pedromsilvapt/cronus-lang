@@ -21,7 +21,7 @@ namespace CronusLang.Compiler.SST
 
         #region Semantic Properties
 
-        public SemanticProperty<Symbol> TypeSymbol { get; set; }
+        public SemanticProperty<SymbolIdentifier> TypeSymbol { get; set; }
 
         public SemanticProperty<TypeDefinition> Type { get; protected set; }
 
@@ -32,7 +32,7 @@ namespace CronusLang.Compiler.SST
             Parameters = transformer.ToSST<SST.BindingParameter>(scope, syntaxNode.Parameters);
             ReturnType = transformer.ToSST<SST.TypeNode>(scope, syntaxNode.ReturnType);
 
-            TypeSymbol = new SemanticProperty<Symbol>(this, nameof(TypeSymbol));
+            TypeSymbol = new SemanticProperty<SymbolIdentifier>(this, nameof(TypeSymbol));
             Type = new SemanticProperty<TypeDefinition>(this, nameof(Type));
         }
 

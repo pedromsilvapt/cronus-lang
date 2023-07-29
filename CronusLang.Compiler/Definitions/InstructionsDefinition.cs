@@ -1,4 +1,5 @@
 ﻿using CronusLang.ByteCode;
+using CronusLang.Compiler.Containers;
 using CronusLang.TypeSystem;
 using System;
 using System.Collections.Generic;
@@ -16,11 +17,13 @@ namespace CronusLang.Compiler.Definitions
 
         public List<Instruction> Instructions { get; set; }
 
-        public Dictionary<SymbolsScopeEntry, SymbolDefinition> Variables { get; set; }
+        public Dictionary<Symbol, SymbolDefinition> Variables { get; set; }
 
-        public Dictionary<string, SymbolsScopeEntry> VariableNames { get; set; }
+        public Dictionary<string, Symbol> VariableNames { get; set; }
 
         public Dictionary<int, int> Labels { get; set; }
+
+        public List<SourceMapDefinition> SourceMaps { get; set; }
 
         public int StackPointerOffset { get; set; } = 0;
 
@@ -31,9 +34,10 @@ namespace CronusLang.Compiler.Definitions
         public InstructionsDefinition()
         {
             Instructions = new List<Instruction>();
-            Variables = new Dictionary<SymbolsScopeEntry, SymbolDefinition>();
-            VariableNames = new Dictionary<string, SymbolsScopeEntry>();
+            Variables = new Dictionary<Symbol, SymbolDefinition>();
+            VariableNames = new Dictionary<string, Symbol>();
             Labels = new Dictionary<int, int>();
+            SourceMaps = new List<SourceMapDefinition>();
         }
 
         [Obsolete]
@@ -43,6 +47,7 @@ namespace CronusLang.Compiler.Definitions
             Variables = parent.Variables.ToDictionary(kv => kv.Key, kv => kv.Value);
             VariableNames = parent.VariableNames.ToDictionary(kv => kv.Key, kv => kv.Value);
             Labels = new Dictionary<int, int>();
+            SourceMaps = new List<SourceMapDefinition>();
             StackPointerOffset = parent.StackPointerOffset;
         }
 
@@ -53,7 +58,7 @@ namespace CronusLang.Compiler.Definitions
                 throw new Exception($"Cannot redeclare variables (variable '{variableName}' already exists)");
             }
 
-            var scopeSymbol = new SymbolsScopeEntry();
+            var scopeSymbol = new Symbol();
 
             var symbol = new SymbolDefinition(IsGlobal, LoadOperation, StoreOperation, offset, variableType);
 
@@ -73,7 +78,7 @@ namespace CronusLang.Compiler.Definitions
             return Variables[VariableNames[variableName]];
         }
 
-        public SymbolDefinition GetVariable(SymbolsScopeEntry scopeSymbol)
+        public SymbolDefinition GetVariable(Symbol scopeSymbol)
         {
             // TODO Give unique global Ids to SymbolsScopeEntry, and register symbol information
             // associated with those Ids in the bytecode (just like functions)

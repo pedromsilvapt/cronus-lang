@@ -79,7 +79,7 @@ namespace CronusLang.Compiler.SST.Expressions
                 {
                     if (childBinding.Type.TrackDependency(context, out var type))
                     {
-                        Scope.Register(childBindingIdentifier, SymbolsScopeEntry.CreateBinding(i, global: false, type));
+                        Scope.RegisterBinding(childBindingIdentifier, i, global: false, type);
                     }
                 }
             }

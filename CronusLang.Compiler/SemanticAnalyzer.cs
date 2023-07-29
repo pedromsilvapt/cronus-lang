@@ -7,14 +7,13 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using CronusLang.Compiler.Dependencies;
+using CronusLang.Compiler.Containers;
 
 namespace CronusLang.Compiler
 {
     public class SemanticAnalyzer
     {
-        public IReadOnlyList<SST.Node> SemanticNodes { get; set; }
-
-        public TypesLibrary Library { get; set; }
+        public TypesContainer Types { get; set; }
 
         public List<DiagnosticMessage> Diagnostics { get; set; }
 
@@ -24,10 +23,9 @@ namespace CronusLang.Compiler
 
         protected Queue<ISemanticComponent> _nodesToAnalyze;
 
-        public SemanticAnalyzer(TypesLibrary library, IReadOnlyList<SST.Node> semanticNodes)
+        public SemanticAnalyzer(TypesContainer types)
         {
-            Library = library;
-            SemanticNodes = semanticNodes;
+            Types = types;
             Diagnostics = new List<DiagnosticMessage>();
 
             _dependencies = new Dictionary<SemanticDependency, HashSet<ISemanticComponent>>();
@@ -67,7 +65,7 @@ namespace CronusLang.Compiler
             }
 
             // TODO Avoid creating a new object every time, reuse it instead
-            node.Analyze(new SemanticContext(this, Library, node));
+            node.Analyze(new SemanticContext(this, Types, node));
 
             if (!node.Dependencies.Any())
             {
@@ -80,6 +78,7 @@ namespace CronusLang.Compiler
             }
             else
             {
+                // TODO Use a proper logging tool
                 Console.WriteLine($"Analyzed node {node.GetType().Name}|{node.GetHashCode()}" +
                     $"\n\tDependencies: { string.Join(", ", node.Dependencies) }" +
                     $"\n\tResolved: { string.Join(", ", _resolvedDependencies) }");
@@ -132,9 +131,14 @@ namespace CronusLang.Compiler
             return node.Analyzed;
         }
 
-        public bool Analyze()
+        public bool Analyze(IReadOnlyList<SST.Node> semanticNodes)
         {
-            foreach (var node in SemanticNodes)
+            // Make sure the state is clean from any previous analysis
+            _nodesToAnalyze.Clear();
+            _dependencies.Clear();
+            _resolvedDependencies.Clear();
+
+            foreach (var node in semanticNodes)
             {
                 // Initial call of Analyze on all nodes. This will create dependencies on those nodes.
                 Analyze(node);
@@ -172,89 +176,5 @@ namespace CronusLang.Compiler
 
             return Diagnostics.Any(msg => msg.Level == DiagnosticLevel.Error);
         }
-
-        //public TypeDefinition InferExpressionType(Node expression)
-        //{
-
-        //}
-
-        ///// <summary>
-        ///// Creates a Type Object representing the binding
-        ///// </summary>
-        ///// <param name="binding"></param>
-        ///// <returns></returns>
-        //public TypeDefinition InferBindingType(Binding binding)
-        //{
-        //    var
-        //}
-
-        //public TypeDefinition ResolveBindingType(Binding binding)
-        //{
-        //    var inferredType = InferBindingType(binding);
-        //}
-
-        //public SST.Expression AnalyzeExpression(AST.Node expression)
-        //{
-        //    if (expression is AST.Literals.IntLiteral expressionInt)
-        //    {
-
-        //    }
-        //}
-
-        //#region Analyze Expressions
-
-
-
-        //#endregion
-
-        //public SST.BindingType Analyze(AST.BindingType bindingTypeAST)
-        //{
-        //    var bindingType = new SST.BindingType(bindingTypeAST);
-
-
-
-        //    return bindingType;
-        //}
-
-        //public SST.Binding Analyze(AST.Binding bindingAST)
-        //{
-        //    var binding = new SST.Binding(bindingAST);
-
-        //    if (bindingAST.Signature != null)
-        //    {
-        //        binding.Signature = Analyze(bindingAST.Signature);
-        //    }
-
-        //    foreach (var childBindingAST in bindingAST.Bindings)
-        //    {
-        //        var childBinding = Analyze(childBindingAST);
-
-        //        binding.Bindings.Add(childBinding);
-        //    }
-
-        //    binding.Expression = AnalyzeExpression(bindingAST.Expression);
-
-        //    // Infer type. Will only work for bindings with zero arguments (properties)
-        //    if (bindingAST.Signature == null)
-        //    {
-        //        throw new Exception("Type inference not yet implemented.");
-        //    }
-
-        //    return binding;
-        //}
-
-        //public SST.Script Analyze(AST.Script scriptAST)
-        //{
-        //    var script = new SST.Script(scriptAST);
-
-        //    foreach (var childBindingAST in scriptAST.Bindings)
-        //    {
-        //        var childBinding = Analyze(childBindingAST);
-
-        //        script.Bindings.Add(childBinding);
-        //    }
-
-        //    return script;
-        //}
     }
 }

@@ -70,7 +70,7 @@ namespace CronusLang
         {
             foreach (var header in Headers)
             {
-                ByteCode.Cursor = header.CodeStartIndex;
+                ByteCode.Cursor = header.InstructionsRange.Start;
 
                 ExecuteInstructions();
             }

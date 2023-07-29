@@ -8,7 +8,7 @@ namespace CronusLang.TypeSystem.Types
 {
     public class BoolType : TypeDefinition
     {
-        public BoolType(Symbol symbol) : base(symbol)
+        public BoolType(SymbolIdentifier symbol) : base(symbol)
         {
         }
 

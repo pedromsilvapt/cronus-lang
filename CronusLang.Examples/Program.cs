@@ -4,8 +4,9 @@ using CronusLang.Compiler;
 using CronusLang.Parser;
 using System.Diagnostics;
 
-var parser = new CronusParser();
-string code = @"
+var compiler = new Compiler();
+
+var result = compiler.Compile(@"
     let fib :: Int n -> Int {
 	    let n1 = n - 1;
 	    let n2 = n - 2;
@@ -26,13 +27,7 @@ string code = @"
     }
 
     let main = math 0 2;
-    ";
-
-var ast = parser.Parse(code);
-
-var compiler = new Compiler();
-
-var result = compiler.Compile(ast);
+    ");
 
 if (result.IsSuccessfull)
 {
@@ -40,7 +35,7 @@ if (result.IsSuccessfull)
     Console.WriteLine("\n\n// Assembled Code");
     Console.Write(compiler.AssembleText());
 
-    var vm = new CronusVM(result.AssembledInstructions);
+    var vm = new CronusVM(result.Instructions);
     var clock = new Stopwatch();
     clock.Start();
     vm.Execute();
@@ -52,6 +47,7 @@ if (result.IsSuccessfull)
     //{
     //    Console.WriteLine(vm.Stack.Cursor.ToString("X8") + ": " + vm.Stack.ReadInt());
     //}
+    Console.WriteLine("Binary Size: {0} b", result.Instructions.Count);
     Console.WriteLine("Result: {0}", vm.Stack.PopBool());
     Console.WriteLine("Elapsed time: {0}", clock.Elapsed);
 }

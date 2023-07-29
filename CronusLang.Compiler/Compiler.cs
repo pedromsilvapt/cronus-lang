@@ -8,41 +8,72 @@ using Sawmill.Expressions;
 using CronusLang.Compiler.SST;
 using CronusLang.Compiler.Definitions;
 using System.Text;
+using CronusLang.Compiler.Containers;
+using CronusLang.Parser;
 
 namespace CronusLang.Compiler
 {
     public class Compiler
     {
-        protected int _functionIdCounter = 0;
-
-        protected int _labelIdCounter = 0;
-
-        public Dictionary<Symbol, FunctionDefinition> FunctionsBySymbol { get; set; } = new Dictionary<Symbol, FunctionDefinition>();
-
-        public Dictionary<int, FunctionDefinition> Functions { get; set; } = new Dictionary<int, FunctionDefinition>();
-
         public GlobalDefinition Global { get; set; } = new GlobalDefinition();
 
+        public TypesContainer Types { get; protected set; } = new TypesContainer();
+
+        public SymbolsContainer Symbols { get; protected set; } = new SymbolsContainer();
+
+        public LabelsContainer Labels { get; protected set; } = new LabelsContainer();
+        
+        public SourceMapsContainer SourceMaps { get; protected set; } = new SourceMapsContainer();
+
+        public FunctionsContainer Functions { get; protected set; } = new FunctionsContainer();
+
+        public string? SourceCode { get; set; } = null;
+
+        public SymbolsScope RootScope { get; protected set; }
+
+        public CronusParser Parser { get; protected set; }
+
         /// <summary>
-        /// Create a function definition. Instructions can then be added to the function definition
+        /// Create the transformer, automatically mapping AST Node Types to SST Node Types
+        /// based on their names and namespaces
         /// </summary>
-        /// <param name="name"></param>
-        /// <param name="type"></param>
-        /// <returns></returns>
-        public FunctionDefinition CreateFunction(Symbol symbol, FunctionTypeDefinition type, string[] argNames, Dictionary<SymbolsScopeEntry, SymbolDefinition> variables)
+        public SemanticTransformer Transformer { get; protected set; }
+
+        /// <summary>
+        /// Creates the semantic analyzer responsible for tracking dependencies between
+        /// the semantic nodes and resolving them in the proper order
+        /// </summary>
+        public SemanticAnalyzer Analyzer { get; protected set; }
+
+        public Compiler()
         {
-            var id = _functionIdCounter++;
+            Parser = new CronusParser();
+            Transformer = SemanticTransformer.FromReflection();
+            Analyzer = new SemanticAnalyzer(Types);
+            RootScope = SymbolsScope.CreateRoot(Analyzer, Symbols);
 
-            var definition = new FunctionDefinition(id, symbol, type, argNames, variables);
+            Initialize();
+        }
 
-            Functions[id] = definition;
+        protected void Initialize()
+        {
+            #region Register Native Types
 
-            FunctionsBySymbol[symbol] = definition;
+            RootScope.RegisterType(Types.Register(new BoolType("Bool")));
+            RootScope.RegisterType(Types.Register(new IntType("Int")));
+            RootScope.RegisterType(Types.Register(new DecimalType("Decimal")));
 
-            return definition;
+            #endregion
         }
 
         #region Compile
+
+        public CompilationResult Compile(string code)
+        {
+            SourceCode = code;
+
+            return Compile(Parser.Parse(code));
+        }
 
         /// <summary>
         /// Compile the given Script AST Node. Can then call `Assemble` to generate the final byte code
@@ -50,26 +81,10 @@ namespace CronusLang.Compiler
         /// <param name="script"></param>
         public CompilationResult Compile(AST.Script scriptAST)
         {
-            TypesLibrary library = new TypesLibrary();
-
-            SymbolsScope rootScope = SymbolsScope.CreateRoot();
-
-            #region Register Native Types
-
-            rootScope.RegisterType(library.Register(new BoolType("Bool")));
-            rootScope.RegisterType(library.Register(new IntType("Int")));
-            rootScope.RegisterType(library.Register(new DecimalType("Decimal")));
-
-            #endregion
-
-            #region Convert AST into non-analyzed SST
-
-            // Create the transformer, automatically mapping AST Node Types to SST Node Types
-            // based on their names and namespaces
-            SemanticTransformer transformer = SemanticTransformer.FromReflection();
+            #region 
 
             // Recursively create the empty SST nodes from the AST ones
-            SST.Script script = transformer.ToSST<SST.Script>(rootScope, scriptAST);
+            SST.Script script = Transformer.ToSST<SST.Script>(RootScope, scriptAST);
 
             #endregion
 
@@ -79,18 +94,12 @@ namespace CronusLang.Compiler
             // are usually the most likely to not have dependencies (literals, etc...)
             List<SST.Node> semanticNodes = ((SST.Node)script).DescendantsAndSelf().ToList();
 
-            // Creates the semantic analyzer responsible for tracking dependencies between
-            // the semantic nodes and resolving them in the proper order
-            SemanticAnalyzer analyzer = new SemanticAnalyzer(library, semanticNodes);
-
-            rootScope.Analyzer = analyzer;
-
             // Perform the analysis of the code
-            analyzer.Analyze();
+            Analyzer.Analyze(semanticNodes);
 
             #endregion
             
-            var result = new CompilationResult(script, analyzer.Diagnostics);
+            var result = new CompilationResult(script, Analyzer.Diagnostics);
 
             #region Type Check
 
@@ -108,7 +117,7 @@ namespace CronusLang.Compiler
                 //var mainBinding = script.Bindings.First(binding => binding.GetSyntaxNode<AST.Binding>().Identifier.Name == "main");
                 CompileScript(script);
 
-                Assemble(result.AssembledInstructions);
+                Assemble(result.Instructions);
             }
 
             #endregion
@@ -164,7 +173,7 @@ namespace CronusLang.Compiler
                 // When the symbol is a function, like in this case, the symbol itself will just be a pointer to the function id
                 // The metadata regarding the function, such as the position of the bytecode, it's type and so on, will be stored in
                 // a header structure
-                var function = CreateFunction(binding.Scope.FullName!, functionType, argNames, symbols);
+                var function = Functions.CreateFunction(binding.Scope.FullName!, functionType, argNames, symbols);
                 function.StackPointerOffset = stackSymbolsSize;
 
                 // Create the return variable
@@ -213,6 +222,8 @@ namespace CronusLang.Compiler
 
         protected void CompileExpression(FunctionDefinition? frame, InstructionsDefinition body, SST.Expression expression)
         {
+            int start = body.Instructions.Count;
+
             #region Literals
 
             if (expression is SST.Literals.IntLiteral intLit)
@@ -442,8 +453,8 @@ namespace CronusLang.Compiler
 
             else if (expression is SST.Operators.Logic.AndOp andOp)
             {
-                var falseLabel = CreateLabelPlaceholder(body);
-                var endLabel = CreateLabelPlaceholder(body);
+                var falseLabel = Labels.Create(body, "and_false");
+                var endLabel = Labels.Create(body, "and_end");
 
                 CompileExpression(frame, body, andOp.Left);
                 // If this value is false, short circuit it
@@ -454,14 +465,14 @@ namespace CronusLang.Compiler
                 // Hence after the expression we can jump right away to the end of the operation
                 Emit(body, OpCode.Jump, endLabel);
                 // This code is only reached if the first operand is false
-                AssignLabel(body, falseLabel);
+                Labels.Assign(body, falseLabel);
                 Emit(body, OpCode.PushFalse);
-                AssignLabel(body, endLabel);
+                Labels.Assign(body, endLabel);
             }
             else if (expression is SST.Operators.Logic.OrOp orOp)
             {
-                var trueLabel = CreateLabelPlaceholder(body);
-                var endLabel = CreateLabelPlaceholder(body);
+                var trueLabel = Labels.Create(body, "or_true");
+                var endLabel = Labels.Create(body, "or_end");
 
                 CompileExpression(frame, body, orOp.Left);
                 // Since we want to jump when this is true, and JumpCond jumps when the value is false, we have to negate it first
@@ -474,9 +485,9 @@ namespace CronusLang.Compiler
                 // Hence after the expression we can jump right away to the end of the operation
                 Emit(body, OpCode.Jump, endLabel);
                 // This code is only reached if the first operand is true
-                AssignLabel(body, trueLabel);
+                Labels.Assign(body, trueLabel);
                 Emit(body, OpCode.PushTrue);
-                AssignLabel(body, endLabel);
+                Labels.Assign(body, endLabel);
             }
             else if (expression is SST.Operators.Logic.NotOp notOp)
             {
@@ -526,8 +537,8 @@ namespace CronusLang.Compiler
             }
             else if (expression is SST.Expressions.IfNode ifNode)
             {
-                var elseLabel = CreateLabelPlaceholder(body);
-                var endLabel = CreateLabelPlaceholder(body);
+                var elseLabel = Labels.Create(body, "if_else");
+                var endLabel = Labels.Create(body, "if_end");
                 
                 // Compile the condition expression
                 CompileExpression(frame, body, ifNode.Condition);
@@ -540,9 +551,9 @@ namespace CronusLang.Compiler
                 // After the end of the Then expression, always jump to the "End" label
                 // To avoid executing both the Then and Else expressions at the same time
                 Emit(body, OpCode.Jump, endLabel);
-                AssignLabel(body, elseLabel);
+                Labels.Assign(body, elseLabel);
                 CompileExpression(frame, body, ifNode.ElseExpression);
-                AssignLabel(body, endLabel);
+                Labels.Assign(body, endLabel);
             }
             else if (expression is SST.Identifier identifier)
             {
@@ -552,9 +563,11 @@ namespace CronusLang.Compiler
             {
                 throw new Exception($"Compile not yet implemented for {expression.GetType().Name}");
             }
+
+            EmitSourceMap(body, start, expression);
         }
 
-        protected void CompileSymbol(FunctionDefinition? frame, InstructionsDefinition body, SymbolsScopeEntry symbol)
+        protected void CompileSymbol(FunctionDefinition? frame, InstructionsDefinition body, Symbol symbol)
         {
             if (symbol.IsParameter)
             {
@@ -620,6 +633,18 @@ namespace CronusLang.Compiler
             body.Instructions.Add(instruction);
         }
 
+        protected void EmitSourceMap(InstructionsDefinition body, int startInstruction, SST.Node node)
+        {
+            var location = node.SyntaxNode.Location;
+
+            EmitSourceMap(body, startInstruction, location.Start.Index, location.End.Index);
+        }
+
+        protected void EmitSourceMap(InstructionsDefinition body, int startInstruction, int sourceStart, int sourceEnd)
+        {
+            SourceMaps.Register(body, startInstruction, body.Instructions.Count, sourceStart, sourceEnd);
+        }
+
         /// <summary>
         /// Build the Dictionary of variables and their byte offset positions relative to the Frame Pointer.
         /// 
@@ -647,14 +672,14 @@ namespace CronusLang.Compiler
         /// <param name="argNames"></param>
         /// <returns></returns>
         /// <exception cref="Exception"></exception>
-        private Dictionary<SymbolsScopeEntry, SymbolDefinition> CreateFunctionSymbols(FunctionTypeDefinition type, SST.Binding binding, string[] argNames, string[] bindingNames, out int returnOffset, out int stackSymbolsSize)
+        private Dictionary<Symbol, SymbolDefinition> CreateFunctionSymbols(FunctionTypeDefinition type, SST.Binding binding, string[] argNames, string[] bindingNames, out int returnOffset, out int stackSymbolsSize)
         {
             if (argNames.Length != type.Arguments.Count)
             {
                 throw new Exception("Invalid number of argument names: does not match function's type argument's number");
             }
 
-            var symbols = new Dictionary<SymbolsScopeEntry, SymbolDefinition>();
+            var symbols = new Dictionary<Symbol, SymbolDefinition>();
 
             var rootScope = binding.Scope;
 
@@ -682,7 +707,7 @@ namespace CronusLang.Compiler
             return symbols;
         }
 
-        private int CreateBlockSymbols(Dictionary<SymbolsScopeEntry, SymbolDefinition> symbols, SST.Node root, int offset = 0)
+        private int CreateBlockSymbols(Dictionary<Symbol, SymbolDefinition> symbols, SST.Node root, int offset = 0)
         {
             int maximumOffset = offset;
 
@@ -778,35 +803,29 @@ namespace CronusLang.Compiler
             return maximumOffset;
         }
 
-        protected LabelPlaceholder CreateLabelPlaceholder(InstructionsDefinition body)
-        {
-            return new LabelPlaceholder(_labelIdCounter++);
-        }
-
-        protected void AssignLabel(InstructionsDefinition body, LabelPlaceholder label)
-        {
-            body.Labels[label.LabelId] = body.Instructions.Count();
-        }
-
         #endregion
 
         #region Assemble (Generate final ByteCode Sequence)
 
         public void Assemble(ByteCode.ByteCode byteCode)
         {
+            var locationStructs = new List<LocationStruct>();
+
             AssemblePlaceholderHeader(byteCode, out HeaderStruct header);
 
-            AssembleGlobalInstructions(byteCode, Global, out int instructionsStart);
+            AssembleGlobalInstructions(byteCode, Global, locationStructs, ref header);
 
-            AssembleFunctionsInstructions(byteCode, out var functionsPosById, out int instructionsEnd);
+            AssembleFunctionsInstructions(byteCode, out var functionsPosById, locationStructs, ref header);
 
-            AssembleFunctionsStructs(byteCode, functionsPosById, out int functionsStructPos);
+            AssembleFunctionsStructs(byteCode, Functions, functionsPosById, ref header);
 
-            header.CodeStartIndex = instructionsStart;
-            header.CodeEndIndex = instructionsEnd;
-            header.FunctionsIndex = functionsStructPos;
-            // TODO Write down type metadata too
-            //header.TypesIndex = typesStructPos;
+            AssembleTypesStructs(byteCode, Types, ref header);
+            
+            AssembleSymbolsStructs(byteCode, Symbols, ref header);
+
+            AssembleSourceCodeMaps(byteCode, locationStructs, ref header);
+
+            AssembleSourceCode(byteCode, SourceCode, ref header);
 
             AssembleHeader(byteCode, ref header);
         }
@@ -838,12 +857,12 @@ namespace CronusLang.Compiler
         /// </summary>
         /// <param name="functionsStructPos">The bytecode position where the first function was written to</param>
         /// <param name="functionsPosById">Dictionary where the key represents the Function Id, and the value is the Byte Position in the bytecode where that Function Structure was written</param>
-        protected void AssembleFunctionsStructs(ByteCode.ByteCode byteCode, Dictionary<int, int> functionsPosById, out int functionsStructPos)
+        protected void AssembleFunctionsStructs(ByteCode.ByteCode byteCode, FunctionsContainer functions, Dictionary<int, int> functionsPosById, ref HeaderStruct header)
         {
-            functionsStructPos = byteCode.Cursor;
+            header.FunctionsIndex = byteCode.Cursor;
 
             byteCode.Write(functionsPosById.Count);
-            foreach (var function in Functions.Values)
+            foreach (var function in functions.FunctionsById.Values)
             {
                 byteCode.Write(new FunctionStruct
                 {
@@ -855,42 +874,136 @@ namespace CronusLang.Compiler
                 });
             }
         }
-
-        protected void AssembleGlobalInstructions(ByteCode.ByteCode byteCode, GlobalDefinition global, out int instructionsStartPos)
+        
+        protected void AssembleTypesStructs(ByteCode.ByteCode byteCode, TypesContainer types, ref HeaderStruct header)
         {
-            instructionsStartPos = byteCode.Cursor;
+            header.TypesIndex = byteCode.Cursor;
 
-            // Write the instructions
-            AssembleInstructionsList(byteCode, global.Labels, global.Instructions);
+            byteCode.Write(types.TypesById.Count);
+            foreach (var type in types.TypesById.Values)
+            {
+                var typeStruct = new TypeStruct
+                {
+                    TypeId = type.Id,
+                };
+
+                if (type is IntType)
+                {
+                    typeStruct.IsInt = true;
+                }
+                else if (type is DecimalType)
+                {
+                    typeStruct.IsDecimal = true;
+                }
+                else if (type is BoolType)
+                {
+                    typeStruct.IsBool = true;
+                }
+                else if (type is FunctionTypeDefinition functionType)
+                {
+                    var functionTypeStruct = new FunctionTypeStruct
+                    {
+                        Arguments = functionType.Arguments.Select(arg => new FunctionArgumentTypeStruct
+                        {
+                            // TODO Capture argument names optionally in function types too
+                            Name = null,
+                            Type = arg.Type.Id,
+                        }).ToArray(),
+                        ReturnType = functionType.ReturnType.Id,
+                    };
+
+                    typeStruct.Function = functionTypeStruct;
+                }
+                else
+                {
+                    throw new Exception($"Invalid type for assembly {type.GetType().Name}");
+                }
+
+                byteCode.Write(typeStruct);
+            }
         }
 
-        protected void AssembleFunctionsInstructions(ByteCode.ByteCode byteCode, out Dictionary<int, int> functionsPosById, out int instructionsEndPos)
+        protected void AssembleSymbolsStructs(ByteCode.ByteCode byteCode, SymbolsContainer symbols, ref HeaderStruct header)
+        {
+            header.SymbolsIndex = byteCode.Cursor;
+
+            byteCode.Write(symbols.SymbolsById.Values.Count);
+            foreach (var symbol in symbols.SymbolsById.Values)
+            {
+                byteCode.Write(new SymbolStruct
+                {
+                    SymbolId = symbol.SymbolId,
+                    TypeId = symbol.Type.Id,
+                    // TODO
+                    FunctionId = null,
+                    Name = null,
+                });
+            }
+        }
+
+        protected void AssembleSourceCodeMaps(ByteCode.ByteCode byteCode, List<LocationStruct> locationStructs, ref HeaderStruct header)
+        {
+            header.SourceMapsRange.Start = byteCode.Cursor;
+
+            foreach (var location in locationStructs)
+            {
+                byteCode.Write(location);
+            }
+
+            header.SourceMapsRange.End = byteCode.Cursor;
+        }
+
+        protected void AssembleSourceCode(ByteCode.ByteCode byteCode, string? sourceCode, ref HeaderStruct header)
+        {
+            var range = new RangeStruct { Start = byteCode.Cursor };
+
+            if (sourceCode != null && sourceCode.Length > 0)
+            {
+                byteCode.Write(sourceCode);
+            }
+
+            range.End = byteCode.Cursor;
+
+            header.SourceRange = range;
+        }
+
+        protected void AssembleGlobalInstructions(ByteCode.ByteCode byteCode, GlobalDefinition global, List<LocationStruct> locationStructs, ref HeaderStruct header)
+        {
+            header.InstructionsRange.Start = byteCode.Cursor;
+
+            // Write the instructions
+            AssembleInstructionsList(byteCode, global, locationStructs);
+        }
+
+        protected void AssembleFunctionsInstructions(ByteCode.ByteCode byteCode, out Dictionary<int, int> functionsPosById, List<LocationStruct> locationStructs, ref HeaderStruct header)
         {
             functionsPosById = new Dictionary<int, int>();
 
-            foreach (var function in Functions.Values)
+            foreach (var function in Functions.FunctionsById.Values)
             {
                 // Note down this function's location in the bytecode
                 functionsPosById[function.Id] = byteCode.Cursor;
 
                 // Write the instructions
-                AssembleInstructionsList(byteCode, function.Labels, function.Instructions);
+                AssembleInstructionsList(byteCode, function, locationStructs);
             }
 
-            instructionsEndPos = byteCode.Cursor;
+            header.InstructionsRange.End = byteCode.Cursor;
         }
 
-        protected void AssembleInstructionsList(ByteCode.ByteCode byteCode, Dictionary<int, int> labels, IEnumerable<Instruction> instructions)
+        protected void AssembleInstructionsList(ByteCode.ByteCode byteCode, InstructionsDefinition body, List<LocationStruct> locationStructs)
         {
             // Dictionary mapping a label Id with the Index (bytecode) where it is defined
             Dictionary<int, int> labelDefinitions = new Dictionary<int, int>();
             // Dictionary mapping a label Id with the 
             Dictionary<int, List<int>> labelReferences = new Dictionary<int, List<int>>();
 
+            var instructionByteIndexes = new List<int>(body.Instructions.Count);
+
             // By default, the labels dictionary stores the label ids as keys and the instruction indexes as values
             // Here we will revert that to store for each index, the list of labels on that index (usually should only be one,
             // but to prevent bugs, we support multiple labels on the same instruction)
-            var labelsByIndex = labels
+            var labelsByIndex = body.Labels
                 // Group by the value (instruction index)
                 .GroupBy(kv => kv.Value)
                 // And convert to a dictionary where the key is the instruction index
@@ -900,8 +1013,10 @@ namespace CronusLang.Compiler
 
             var instIndex = 0;
 
-            foreach (var inst in instructions)
+            foreach (var inst in body.Instructions)
             {
+                instructionByteIndexes.Add(instIndex);
+
                 if (labelsByIndex.ContainsKey(instIndex))
                 {
                     // Get the id of the label pointing to this instruction index
@@ -941,6 +1056,23 @@ namespace CronusLang.Compiler
             if (labelReferences.Any())
             {
                 throw new Exception($"Compiler Bug: Label references with ids {string.Join(", ", labelReferences.Keys)} were not resolved during compilation.");
+            }
+
+            foreach (var sourceMap in body.SourceMaps)
+            {
+                locationStructs.Add(new LocationStruct
+                {
+                    Instructions = new RangeStruct
+                    {
+                        Start = instructionByteIndexes[sourceMap.Instructions.Start],
+                        End = instructionByteIndexes[sourceMap.Instructions.End]
+                    },
+                    Source = new RangeStruct
+                    {
+                        Start = sourceMap.Source.Start,
+                        End = sourceMap.Source.End,
+                    }
+                });
             }
         }
 
@@ -1010,11 +1142,11 @@ namespace CronusLang.Compiler
             AssembleTextInstructionsList(stringBuilder, Global.Instructions);
             stringBuilder.AppendLine();
 
-            foreach (var function in Functions)
+            foreach (var function in Functions.FunctionsById.Values)
             {
-                stringBuilder.AppendLine("// " + function.Value.Symbol.FullPath);
+                stringBuilder.AppendLine("// " + function.Symbol.FullPath);
 
-                AssembleTextInstructionsList(stringBuilder, function.Value.Instructions, indent: "\t");
+                AssembleTextInstructionsList(stringBuilder, function.Instructions, indent: "\t");
 
                 stringBuilder.AppendLine();
             }
@@ -1046,7 +1178,7 @@ namespace CronusLang.Compiler
 
         public IReadOnlyList<DiagnosticMessage> Diagnostics { get; set; }
 
-        public ByteCode.ByteCode AssembledInstructions { get; set; }
+        public ByteCode.ByteCode Instructions { get; set; }
 
         public bool IsSuccessfull { get; protected set; }
 
@@ -1055,7 +1187,7 @@ namespace CronusLang.Compiler
             SemanticNodes = semanticNodes;
             Diagnostics = diagnostics ?? new List<DiagnosticMessage>();
             IsSuccessfull = Diagnostics.All(msg => msg.Level != DiagnosticLevel.Error);
-            AssembledInstructions = new ByteCode.ByteCode();
+            Instructions = new ByteCode.ByteCode();
         }
     }
 }

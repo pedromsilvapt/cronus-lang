@@ -8,7 +8,7 @@ namespace CronusLang.TypeSystem.Types
 {
     public class IntType : TypeDefinition
     {
-        public IntType(Symbol symbol) : base(symbol)
+        public IntType(SymbolIdentifier symbol) : base(symbol)
         {
         }
 

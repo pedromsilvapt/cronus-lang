@@ -1,4 +1,5 @@
-﻿using CronusLang.Compiler.Dependencies;
+﻿using CronusLang.Compiler.Containers;
+using CronusLang.Compiler.Dependencies;
 using CronusLang.TypeSystem;
 using System;
 using System.Collections.Generic;
@@ -33,11 +34,10 @@ namespace CronusLang.Compiler
     {
         /// <summary>
         /// Reference to the Semantic Analyzer class.
-        /// 
-        /// Is only defined in the Root Scope, and only after the full Scope tree is already created and
-        /// the symbols are reserved, but before the symbols start to be declared.
         /// </summary>
-        public SemanticAnalyzer? Analyzer { get; set; }
+        public SemanticAnalyzer Analyzer { get; set; }
+
+        public SymbolsContainer SymbolsContainer { get; set; }
 
         public SymbolsScope RootScope { get; protected set; }
 
@@ -57,12 +57,14 @@ namespace CronusLang.Compiler
 
         protected HashSet<string> _reservedSymbols;
 
-        protected Dictionary<string, SymbolsScopeEntry> _symbols;
+        protected Dictionary<string, Symbol> _symbols;
 
         protected Lazy<string?> _fullName;
 
-        protected SymbolsScope(string? name = null, bool global = true, bool requireReservation = true, bool requireCapture = false)
+        protected SymbolsScope(SemanticAnalyzer analyzer, SymbolsContainer symbolsContainer, string? name = null, bool global = true, bool requireReservation = true, bool requireCapture = false)
         {
+            Analyzer = analyzer;
+            SymbolsContainer = symbolsContainer;
             RootScope = this;
             ParentScope = null;
             ChildrenScopes = new List<SymbolsScope>();
@@ -72,13 +74,14 @@ namespace CronusLang.Compiler
             RequireCapture = requireCapture;
 
             _reservedSymbols = new HashSet<string>();
-            _symbols = new Dictionary<string, SymbolsScopeEntry>();
+            _symbols = new Dictionary<string, Symbol>();
             _fullName = new Lazy<string?>(() => CalculateFullName(), isThreadSafe: false);
         }
 
         protected SymbolsScope(SymbolsScope parentScope, string? name = null, bool? global = null, bool requireReservation = true, bool requireCapture = false)
         {
             Analyzer = parentScope.Analyzer;
+            SymbolsContainer = parentScope.SymbolsContainer;
             ParentScope = parentScope;
             RootScope = parentScope.RootScope;
             ChildrenScopes = new List<SymbolsScope>();
@@ -88,7 +91,7 @@ namespace CronusLang.Compiler
             RequireCapture = requireCapture;
 
             _reservedSymbols = new HashSet<string>();
-            _symbols = new Dictionary<string, SymbolsScopeEntry>();
+            _symbols = new Dictionary<string, Symbol>();
             _fullName = new Lazy<string?>(() => CalculateFullName(), isThreadSafe: false);
 
             parentScope.ChildrenScopes.Add(this);
@@ -123,13 +126,15 @@ namespace CronusLang.Compiler
             return _reservedSymbols.Contains(identifier);
         }
 
-        public void Register(string identifier, SymbolsScopeEntry symbol)
+        public void Register(string identifier, Symbol symbol)
         {
             // Captures do not need to be reserved
             if (RequireReservation && !symbol.IsCapture && !IsSymbolReserved(identifier))
             {
                 throw new Exception(string.Format("Cannot register un-reserved symbol {0}", identifier));
             }
+
+            SymbolsContainer.Register(identifier, symbol);
 
             if (!_symbols.ContainsKey(identifier))
             {
@@ -147,12 +152,27 @@ namespace CronusLang.Compiler
             }
         }
 
-        public void RegisterType(TypeDefinition type)
+        public void RegisterCapture(string sourceIdentifier, SymbolsScope sourceScope, string identifier, TypeDefinition type)
         {
-            Register(type.Symbol.Name, SymbolsScopeEntry.CreateType(type));
+            Register(sourceIdentifier, SymbolsContainer.CreateCapture(sourceScope, identifier, type));
+        }
+        
+        public void RegisterParameter(string identifier, int parameterIndex, TypeDefinition type)
+        {
+            Register(identifier, SymbolsContainer.CreateParameter(parameterIndex, type));
+        }
+        
+        public void RegisterBinding(string identifier, int bindingIndex, bool global, TypeDefinition type)
+        {
+            Register(identifier, SymbolsContainer.CreateBinding(bindingIndex, global, type));
         }
 
-        public SymbolsScopeEntry? TryLookup(string identifier, LookupOptions lookupOptions = LookupOptions.Self)
+        public void RegisterType(TypeDefinition type)
+        {
+            Register(type.Symbol.Name, SymbolsContainer.CreateType(type));
+        }
+
+        public Symbol? TryLookup(string identifier, LookupOptions lookupOptions = LookupOptions.Self)
         {
             SymbolsScope? startingScope = this;
 
@@ -165,7 +185,7 @@ namespace CronusLang.Compiler
                 startingScope = ParentScope;
             }
 
-            SymbolsScopeEntry? result = null;
+            Symbol? result = null;
 
             Stack<SymbolsScope> capturingScopesList = new Stack<SymbolsScope>();
 
@@ -181,7 +201,7 @@ namespace CronusLang.Compiler
                         // and in the end we will want to return the last captured symbol, instead of the original
                         while (capturingScopesList.Count > 0)
                         {
-                            symbol = SymbolsScopeEntry.CreateCapture(
+                            symbol = SymbolsContainer.CreateCapture(
                                 sourceScope,
                                 identifier,
                                 symbol.Type
@@ -226,7 +246,7 @@ namespace CronusLang.Compiler
             return result;
         }
 
-        public SymbolsScopeEntry Lookup(string identifier, LookupOptions lookupOptions = LookupOptions.Self)
+        public Symbol Lookup(string identifier, LookupOptions lookupOptions = LookupOptions.Self)
         {
             var symbol = TryLookup(identifier, lookupOptions);
 
@@ -292,9 +312,9 @@ namespace CronusLang.Compiler
             return new SymbolsScope(this, name, global, requireReservation, requireCapture);
         }
 
-        public static SymbolsScope CreateRoot(string? name = null, bool global = true, bool requireReservation = false, bool requireCapture = false)
+        public static SymbolsScope CreateRoot(SemanticAnalyzer analyzer, SymbolsContainer symbolsContainer, string? name = null, bool global = true, bool requireReservation = false, bool requireCapture = false)
         {
-            return new SymbolsScope(name, global, requireReservation, requireCapture);
+            return new SymbolsScope(analyzer, symbolsContainer, name, global, requireReservation, requireCapture);
         }
     }
 
@@ -327,14 +347,15 @@ namespace CronusLang.Compiler
     }
 
     // TODO
-    public class SymbolsScopeEntry
+    public class Symbol
     {
         #region Parameter variant
 
-        public static SymbolsScopeEntry CreateParameter(int parameterIndex, TypeDefinition type)
+        public static Symbol CreateParameter(int symbolId, int parameterIndex, TypeDefinition type)
         {
-            return new SymbolsScopeEntry
+            return new Symbol
             {
+                SymbolId = symbolId,
                 IsParameter = true,
                 ParameterIndex = parameterIndex,
                 Type = type,
@@ -349,31 +370,33 @@ namespace CronusLang.Compiler
 
         #region Capture variant
 
-        public static SymbolsScopeEntry CreateCapture(SymbolsScope sourceScope, string identifier, TypeDefinition type)
+        public static Symbol CreateCapture(int symbolId, SymbolsScope sourceScope, string identifier, TypeDefinition type)
         {
-            return new SymbolsScopeEntry
+            return new Symbol
             {
+                SymbolId = symbolId,
                 IsCapture = true,
-                SourceScope = sourceScope,
-                Identifier = identifier,
+                CaptureSourceScope = sourceScope,
+                CaptureIdentifier = identifier,
                 Type = type,
             };
         }
 
         public bool IsCapture { get; set; } = false;
 
-        public SymbolsScope? SourceScope { get; set; } = null;
+        public SymbolsScope? CaptureSourceScope { get; set; } = null;
 
-        public string? Identifier { get; set; } = null;
+        public string? CaptureIdentifier { get; set; } = null;
 
         #endregion
 
         #region Binding variant
 
-        public static SymbolsScopeEntry CreateBinding(int bindingIndex, bool global, TypeDefinition type)
+        public static Symbol CreateBinding(int symbolId, int bindingIndex, bool global, TypeDefinition type)
         {
-            return new SymbolsScopeEntry
+            return new Symbol
             {
+                SymbolId = symbolId,
                 IsBinding = true,
                 BindingIndex = bindingIndex,
                 BindingGlobal = global,
@@ -391,10 +414,11 @@ namespace CronusLang.Compiler
 
         #region Type variant
 
-        public static SymbolsScopeEntry CreateType(TypeDefinition type)
+        public static Symbol CreateType(int symbolId, TypeDefinition type)
         {
-            return new SymbolsScopeEntry
+            return new Symbol
             {
+                SymbolId = symbolId,
                 IsType = true,
                 Type = type,
             };
@@ -405,6 +429,8 @@ namespace CronusLang.Compiler
         #endregion
 
         #region Global fields
+
+        public int SymbolId { get; set; } = 0;
 
         public TypeDefinition Type { get; set; } = null!;
 

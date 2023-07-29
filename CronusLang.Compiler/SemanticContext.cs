@@ -1,4 +1,5 @@
-﻿using CronusLang.Compiler.Dependencies;
+﻿using CronusLang.Compiler.Containers;
+using CronusLang.Compiler.Dependencies;
 using CronusLang.TypeSystem;
 using CronusLang.TypeSystem.Types;
 using System;
@@ -14,11 +15,11 @@ namespace CronusLang.Compiler
     {
         public SemanticAnalyzer Analyzer { get; protected set;  }
 
-        public TypesLibrary Types { get; protected set;  }
+        public TypesContainer Types { get; protected set;  }
 
         public ISemanticComponent Component { get; set; }
 
-        public SemanticContext(SemanticAnalyzer analyzer, TypesLibrary types, ISemanticComponent component)
+        public SemanticContext(SemanticAnalyzer analyzer, TypesContainer types, ISemanticComponent component)
         {
             Types = types;
             Component = component;

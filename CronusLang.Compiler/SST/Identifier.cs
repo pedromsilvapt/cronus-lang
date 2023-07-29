@@ -10,11 +10,11 @@ namespace CronusLang.Compiler.SST
 {
     public class Identifier : Expression
     {
-        public SemanticProperty<SymbolsScopeEntry> Symbol { get; set; }
+        public SemanticProperty<Symbol> Symbol { get; set; }
 
         public Identifier(SymbolsScope scope, AST.Identifier syntaxNode, SemanticTransformer transformer) : base(scope, syntaxNode)
         {
-            Symbol = new SemanticProperty<SymbolsScopeEntry>(this, nameof(Symbol));
+            Symbol = new SemanticProperty<Symbol>(this, nameof(Symbol));
         }
 
         public override int CountChildren() => 0;

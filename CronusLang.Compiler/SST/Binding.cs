@@ -87,7 +87,7 @@ namespace CronusLang.Compiler.SST
         {
             if (Signature != null && !Signature.TypeSymbol.IsResolved)
             {
-                Signature?.TypeSymbol?.Resolve(context, new Symbol(Scope.FullName ?? "<anonymous>"));
+                Signature?.TypeSymbol?.Resolve(context, new SymbolIdentifier(Scope.FullName ?? "<anonymous>"));
             }
 
             // When the signature is not null, we do not need to infer the type from the expression
@@ -101,9 +101,10 @@ namespace CronusLang.Compiler.SST
 
                         var paramType = parameter.Type.Type.Value;
 
-                        Scope.Register(
+                        Scope.RegisterParameter(
                             identifier: parameter.Identifier.GetSyntaxNode<AST.Identifier>().Name,
-                            symbol: SymbolsScopeEntry.CreateParameter(i, paramType)
+                            parameterIndex: i, 
+                            type: paramType
                         );
                     }
 

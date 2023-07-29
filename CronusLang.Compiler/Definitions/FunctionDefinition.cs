@@ -8,13 +8,13 @@ namespace CronusLang.Compiler.Definitions
     {
         public int Id { get; set; }
 
-        public Symbol Symbol { get; set; }
+        public SymbolIdentifier Symbol { get; set; }
 
         public FunctionTypeDefinition Type { get; set; }
 
         public string[] ArgNames { get; set; }
 
-        public FunctionDefinition(int id, Symbol symbol, FunctionTypeDefinition type, string[] argNames, Dictionary<SymbolsScopeEntry, SymbolDefinition> variables) : base()
+        public FunctionDefinition(int id, SymbolIdentifier symbol, FunctionTypeDefinition type, string[] argNames, Dictionary<Symbol, SymbolDefinition> variables) : base()
         {
             Id = id;
             Symbol = symbol;

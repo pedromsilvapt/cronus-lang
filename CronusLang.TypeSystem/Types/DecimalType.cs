@@ -8,7 +8,7 @@ namespace CronusLang.TypeSystem.Types
 {
     public class DecimalType : TypeDefinition
     {
-        public DecimalType(Symbol symbol) : base(symbol)
+        public DecimalType(SymbolIdentifier symbol) : base(symbol)
         {
         }
 

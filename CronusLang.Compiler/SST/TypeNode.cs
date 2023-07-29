@@ -58,7 +58,7 @@ namespace CronusLang.Compiler.SST
             // TODO Generics not supported!
             // TODO Types inside namespaces/other types not supported!
 
-            var symbol = new TypeSystem.Symbol(SymbolSegments);
+            var symbol = new TypeSystem.SymbolIdentifier(SymbolSegments);
 
             var symbolIdentifier = symbol.Segments.First();
 

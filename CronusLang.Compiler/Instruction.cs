@@ -27,9 +27,9 @@ namespace CronusLang.Compiler
     }
 
     public struct FunctionPlaceholder {
-        public Symbol Symbol;
+        public SymbolIdentifier Symbol;
 
-        public FunctionPlaceholder(Symbol symbol)
+        public FunctionPlaceholder(SymbolIdentifier symbol)
         {
             Symbol = symbol;
         }
@@ -37,9 +37,9 @@ namespace CronusLang.Compiler
 
     public struct VariablePlaceholder
     {
-        public Symbol Symbol;
+        public SymbolIdentifier Symbol;
 
-        public VariablePlaceholder(Symbol symbol)
+        public VariablePlaceholder(SymbolIdentifier symbol)
         {
             Symbol = symbol;
         }

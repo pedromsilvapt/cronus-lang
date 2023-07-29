@@ -9,7 +9,7 @@ namespace CronusLang.TypeSystem
     /// <summary>
     /// Immutable Symbol referencing some Type/Binding in the code
     /// </summary>
-    public struct Symbol
+    public struct SymbolIdentifier
     {
         private string[] _segments;
 
@@ -23,31 +23,31 @@ namespace CronusLang.TypeSystem
 
         public string Name => Segments.Last();
 
-        public Symbol(string name)
+        public SymbolIdentifier(string name)
         {
             _segments = name.Split(".").ToArray();
         }
 
-        public Symbol(params string[] segments) : this((IEnumerable<string>)segments)
+        public SymbolIdentifier(params string[] segments) : this((IEnumerable<string>)segments)
         { }
 
-        public Symbol(IEnumerable<string> segments)
+        public SymbolIdentifier(IEnumerable<string> segments)
         {
             _segments = segments.SelectMany(seg => seg.Split(".")).ToArray();
         }
 
-        public Symbol(params Symbol[] symbols) : this((IEnumerable<Symbol>)symbols)
+        public SymbolIdentifier(params SymbolIdentifier[] symbols) : this((IEnumerable<SymbolIdentifier>)symbols)
         { }
 
-        public Symbol(IEnumerable<Symbol> symbols)
+        public SymbolIdentifier(IEnumerable<SymbolIdentifier> symbols)
         {
             _segments = symbols.SelectMany(sym => sym.Segments).ToArray();
         }
 
-        public static Symbol operator +(Symbol prefix, string name) => new Symbol(prefix, name);
+        public static SymbolIdentifier operator +(SymbolIdentifier prefix, string name) => new SymbolIdentifier(prefix, name);
 
-        public static implicit operator Symbol(string name) => new Symbol(name);
+        public static implicit operator SymbolIdentifier(string name) => new SymbolIdentifier(name);
 
-        public static implicit operator Symbol(string[] segments) => new Symbol(segments);
+        public static implicit operator SymbolIdentifier(string[] segments) => new SymbolIdentifier(segments);
     }
 }

@@ -15,8 +15,10 @@ namespace CronusLang.ByteCode
             Write(header.HeaderIndex);
             Write(header.TypesIndex);
             Write(header.FunctionsIndex);
-            Write(header.CodeStartIndex);
-            Write(header.CodeEndIndex);
+            Write(header.InstructionsRange.Start);
+            Write(header.InstructionsRange.End);
+            Write(header.SourceRange.Start);
+            Write(header.SourceRange.End);
             Write(header.TotalLength);
             
             return cursor;
@@ -36,36 +38,68 @@ namespace CronusLang.ByteCode
             return cursor;
         }
 
-        // TODO Redo
-        public int Write(FunctionTypeLayout functionType)
+        public int Write(TypeStruct type)
         {
             int cursor = Cursor;
 
-            Write(OpCode.DefFunc);
-            Write(functionType.TypeId);
-            Write(functionType.Arguments.Count());
+            Write(type.TypeId);
+            Write(type.IsBool);
+            Write(type.IsInt);
+            Write(type.IsDecimal);
+            Write(type.Function.HasValue);
+            if (type.Function.HasValue)
+            {
+                Write(type.Function.Value);
+            }
+
+            return cursor;
+        }
+
+        public int Write(FunctionTypeStruct functionType)
+        {
+            int cursor = Cursor;
+
+            Write(functionType.Arguments.Length);
             foreach (var arg in functionType.Arguments)
             {
-                Write(arg.Name);
-                Write(arg.Type);
+                Write(arg);
             }
             Write(functionType.ReturnType);
 
             return cursor;
         }
 
-        // TODO Redo
-        public int Write(TypesIndex tableOfContents)
+        public int Write(FunctionArgumentTypeStruct functionArgumentType)
         {
             int cursor = Cursor;
 
-            Write(tableOfContents.Entries.Length);
-            foreach (var entry in tableOfContents.Entries)
-            {
-                Write(entry.TypeId);
-                Write(entry.Position);
-            }
+            Write(functionArgumentType.Name);
+            Write(functionArgumentType.Type);
 
+            return cursor;
+        }
+
+        public int Write(SymbolStruct symbol)
+        {
+            int cursor = Cursor;
+
+            Write(symbol.SymbolId);
+            Write(symbol.TypeId);
+            Write(symbol.FunctionId ?? 0);
+            Write(symbol.Name);
+            
+            return cursor;
+        }
+
+        public int Write(LocationStruct location)
+        {
+            int cursor = Cursor;
+
+            Write(location.Instructions.Start);
+            Write(location.Instructions.End);
+            Write(location.Source.Start);
+            Write(location.Source.End);
+            
             return cursor;
         }
 
@@ -77,8 +111,10 @@ namespace CronusLang.ByteCode
             header.HeaderIndex = ReadInt();
             header.TypesIndex = ReadInt();
             header.FunctionsIndex = ReadInt();
-            header.CodeStartIndex = ReadInt();
-            header.CodeEndIndex = ReadInt();
+            header.InstructionsRange.Start = ReadInt();
+            header.InstructionsRange.End = ReadInt();
+            header.SourceRange.Start = ReadInt();
+            header.SourceRange.End = ReadInt();
             header.TotalLength = ReadInt();
             return header;
         }
@@ -97,104 +133,72 @@ namespace CronusLang.ByteCode
             return function;
         }
 
-        public FunctionTypeLayout ReadFunctionTypeLayout()
+        public TypeStruct ReadType()
         {
-            var func = new FunctionTypeLayout();
+            var type = new TypeStruct();
 
-            // Must return DefFunc
-            _ = ReadOpCode();
-            func.TypeId = ReadInt();
-            func.Arguments = new FunctionArgumentType[ReadInt()];
+            type.TypeId = ReadInt();
+            type.IsBool = ReadBool();
+            type.IsInt = ReadBool();
+            type.IsDecimal = ReadBool();
+            type.Function = ReadBool()
+                ? ReadFunctionType()
+                : null;
+            
+            return type;
+        }
+
+        public FunctionTypeStruct ReadFunctionType()
+        {
+            var func = new FunctionTypeStruct();
+
+            func.Arguments = new FunctionArgumentTypeStruct[ReadInt()];
             for (int i = 0; i < func.Arguments.Length; i++)
             {
-                var arg = new FunctionArgumentType();
+                var arg = new FunctionArgumentTypeStruct();
                 arg.Name = ReadString();
                 arg.Type = ReadInt();
 
-                func.Arguments[i] = arg;
+                func.Arguments[i] = ReadFunctionArgumentType();
             }
             func.ReturnType = ReadInt();
 
             return func;
         }
 
-        public TypesIndex ReadTypesIndex()
+        public FunctionArgumentTypeStruct ReadFunctionArgumentType()
         {
-            var index = new TypesIndex();
+            var arg = new FunctionArgumentTypeStruct();
+            arg.Name = ReadString();
+            arg.Type = ReadInt();
+            return arg;
+        }
 
-            index.Entries = new TypesIndexEntry[ReadInt()];
-            for (int i = 0; i < index.Entries.Length; i++)
-            {
-                var entry = new TypesIndexEntry();
-                entry.TypeId = ReadInt();
-                entry.Position = ReadInt();
-                index.Entries[i] = entry;
-            }
+        public SymbolStruct ReadSymbol()
+        {
+            var symbol = new SymbolStruct();
 
-            return index;
+            symbol.SymbolId = ReadInt();
+            symbol.TypeId = ReadInt();
+            symbol.FunctionId = ReadInt();
+            if (symbol.FunctionId.Value == 0) symbol.FunctionId = null;
+            symbol.Name = ReadString();
+
+            return symbol;
+        }
+
+        public LocationStruct ReadLocation()
+        {
+            var location = new LocationStruct();
+
+            location.Instructions.Start = ReadInt();
+            location.Instructions.End = ReadInt();
+            location.Source.Start = ReadInt();
+            location.Source.End = ReadInt();
+
+            return location;
         }
 
         #endregion
-    }
-
-    public struct HeaderStruct
-    {
-        public int HeaderIndex;
-
-        public int TypesIndex;
-
-        public int FunctionsIndex;
-
-        public int CodeStartIndex;
-
-        public int CodeEndIndex;
-
-        public int TotalLength;
-    }
-
-    public struct FunctionTypeLayout
-    {
-        public int TypeId;
-
-        public FunctionArgumentType[] Arguments;
-
-        public int ReturnType;
-    }
-
-    public struct FunctionArgumentType
-    {
-        public string? Name;
-
-        public int Type;
-    }
-
-    public struct TypesIndex
-    {
-        public TypesIndexEntry[] Entries;
-    }
-
-    public struct TypesIndexEntry
-    {
-        public int TypeId;
-
-        public int Position;
-    }
-
-    public struct FunctionsIndex
-    {
-        public FunctionStruct[] Entries;
-    }
-
-    public struct FunctionStruct
-    {
-        public int FunctionId;
-
-        public int Position;
-
-        public int TypeId;
-
-        public string[] ArgNames;
-
-        public string Symbol;
     }
 }
